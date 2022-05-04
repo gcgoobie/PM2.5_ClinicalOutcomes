@@ -1,0 +1,142 @@
+---
+title: "Monthly Satellite NO3 Combined Three Cohort File"
+author: "Gillian Goobie"
+date: "12/06/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+```
+
+# Importing Datasets
+Here I am importing the file which contains cleaned Simmons Data with NO3 Levels Matched
+```{r}
+outfile1 <- here("Simmons_fILD_NO3_BaselineData_2021_12_06.xlsx")
+Simm <- read_excel(outfile1)
+```
+
+Here I am importing the file which contains cleaned PFF Data with NO3 Levels Matched
+```{r}
+outfile2 <- here("PFF_fILD_NO3_BaselineData_ConsentDateRef_2021_12_06.xlsx")
+PFF <- read_excel(outfile2)
+```
+
+Here I am importing the file which contains cleaned CARE-PF Data with NO3 Levels Matched
+```{r}
+outfile3 <- here("CAREPF_fILD_NO3_BaselineData_2021_12_06.xlsx")
+CARE <- read_excel(outfile3)
+```
+
+# Create Cohort Variable
+```{r}
+Simm <- Simm %>% mutate(cohort="Simmons")
+PFF <- PFF %>% mutate(cohort="PFF")
+CARE <- CARE %>% mutate(cohort="CARE-PF")
+```
+
+# Simplify included variables in each dataframe
+```{r}
+Simm <- Simm %>% rename("lat"="lat.x", "lon"="lon.x")
+Simm <- Simm %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, ADI_nat, natADI_quart, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date,  NO3_dx, NO3dx_quart, NO3dx_dec, NO3dx_dich, NO3_1yrPreCensor, NO31yrCensor_quart, NO31yrCensor_dec, NO31yrCensor_dich, NO3_5yrPreCensor, NO35yrCensor_quart, NO35yrCensor_dec, NO35yrCensor_dich, NO3_1yrPreDx, NO31yr_quart, NO31yr_dec, NO31yr_dich, NO3_5yrPreDx, NO35yr_quart, NO35yr_dec, NO35yr_dich)
+str(Simm)
+```
+
+```{r}
+PFF$ID <- str_pad(PFF$ID, width=9, side="right", pad="0")
+PFF$ID <- as.numeric(PFF$ID)
+PFF$deadORtx <- as.character(PFF$deadORtx)
+PFF$status <- as.numeric(PFF$status)
+PFF$dich_smoking <- PFF$smokeHx
+PFF <- PFF %>% rename("lat"="lat.x", "lon"="lon.x")
+PFF <- PFF %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, fvc_date, dlco_date, NO3_dx, NO3dx_quart, NO3dx_dec, NO3dx_dich, NO3_1yrPreCensor, NO31yrCensor_quart, NO31yrCensor_dec, NO31yrCensor_dich, NO3_5yrPreCensor, NO35yrCensor_quart, NO35yrCensor_dec, NO35yrCensor_dich, NO3_1yrPreDx, NO31yr_dec, NO31yr_dich, NO3_5yrPreDx, NO35yr_quart, NO35yr_dec, NO35yr_dich)
+str(PFF)
+```
+
+```{r}
+CARE <- CARE %>% rename("lat"="lat.x")
+CARE <- CARE %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date, NO3_dx, NO3dx_quart, NO3dx_dec, NO3dx_dich, NO3_1yrPreCensor, NO31yrCensor_quart, NO31yrCensor_dec, NO31yrCensor_dich, NO3_5yrPreCensor, NO35yrCensor_quart, NO35yrCensor_dec, NO35yrCensor_dich, NO3_1yrPreDx, NO31yr_quart, NO31yr_dec, NO31yr_dich, NO3_5yrPreDx, NO35yr_quart, NO35yr_dec, NO35yr_dich)
+str(CARE)
+```
+
+# Combine Cohorts into one file
+```{r}
+NO3 <- full_join(Simm, CARE)
+NO3 <- full_join(NO3, PFF)
+```
+
+
+# Visual EDA
+Overlapping histograms of NO3 by Cohort
+```{r}
+(NO3 %>% ggplot(aes(x=NO3_dx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="NO3 During Disease", y="Density of Patients in Each Cohort", title="NO3 Exposure During Disease by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+
+Overlapping histograms of NO3 by Cohort
+```{r}
+(NO3 %>% ggplot(aes(x=NO3_5yrPreCensor, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="NO3 in 5yrs Pre-Censoring", y="Density of Patients in Each Cohort", title="NO3 Exposure in 5yrs Pre-Censoring by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+
+Overlapping histograms of NO3 by Cohort
+```{r}
+(NO3 %>% ggplot(aes(x=NO3_5yrPreDx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="NO3 in 5yrs Pre-Diagnosis", y="Density of Patients in Each Cohort", title="NO3 Exposure in 5yrs Pre-Diagnosis by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+A lot more overlap of the three cohorts than with SO4.

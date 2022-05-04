@@ -1,0 +1,144 @@
+---
+title: "Monthly Satellite Soil Combined Three Cohort File"
+author: "Gillian Goobie"
+date: "12/22/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+```
+
+# Importing Datasets
+Here I am importing the file which contains cleaned Simmons Data with Soil Levels Matched
+```{r}
+outfile1 <- here("Simmons_fILD_Soil_BaselineData_2021_12_17.xlsx")
+Simm <- read_excel(outfile1)
+```
+
+Here I am importing the file which contains cleaned PFF Data with Soil Levels Matched
+```{r}
+outfile2 <- here("PFF_fILD_Soil_BaselineData_ConsentDateRef_2021_12_17.xlsx")
+PFF <- read_excel(outfile2)
+```
+
+Here I am importing the file which contains cleaned CARE-PF Data with Soil Levels Matched
+```{r}
+outfile3 <- here("CAREPF_fILD_Soil_BaselineData_2021_12_17.xlsx")
+CARE <- read_excel(outfile3)
+```
+
+# Create Cohort Variable
+```{r}
+Simm <- Simm %>% mutate(cohort="Simmons")
+PFF <- PFF %>% mutate(cohort="PFF")
+CARE <- CARE %>% mutate(cohort="CARE-PF")
+```
+
+# Simplify included variables in each dataframe
+```{r}
+Simm <- Simm %>% rename("lat"="lat.x", "lon"="lon.x")
+Simm <- Simm %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, ADI_nat, natADI_quart, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date,  Soil_dx, Soildx_quart, Soildx_dec, Soildx_dich, Soil_1yrPreCensor, Soil1yrCensor_quart, Soil1yrCensor_dec, Soil1yrCensor_dich, Soil_5yrPreCensor, Soil5yrCensor_quart, Soil5yrCensor_dec, Soil5yrCensor_dich, Soil_1yrPreDx, Soil1yr_quart, Soil1yr_dec, Soil1yr_dich, Soil_5yrPreDx, Soil5yr_quart, Soil5yr_dec, Soil5yr_dich)
+str(Simm)
+```
+
+```{r}
+PFF$ID <- str_pad(PFF$ID, width=9, side="right", pad="0")
+PFF$ID <- as.numeric(PFF$ID)
+PFF$deadORtx <- as.character(PFF$deadORtx)
+PFF$status <- as.numeric(PFF$status)
+PFF$dich_smoking <- PFF$smokeHx
+PFF <- PFF %>% rename("lat"="lat.x", "lon"="lon.x")
+PFF <- PFF %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, fvc_date, dlco_date, Soil_dx, Soildx_quart, Soildx_dec, Soildx_dich, Soil_1yrPreCensor, Soil1yrCensor_quart, Soil1yrCensor_dec, Soil1yrCensor_dich, Soil_5yrPreCensor, Soil5yrCensor_quart, Soil5yrCensor_dec, Soil5yrCensor_dich, Soil_1yrPreDx, Soil1yr_dec, Soil1yr_dich, Soil_5yrPreDx, Soil5yr_quart, Soil5yr_dec, Soil5yr_dich)
+str(PFF)
+```
+
+```{r}
+CARE <- CARE %>% rename("lat"="lat.x")
+CARE <- CARE %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date, Soil_dx, Soildx_quart, Soildx_dec, Soildx_dich, Soil_1yrPreCensor, Soil1yrCensor_quart, Soil1yrCensor_dec, Soil1yrCensor_dich, Soil_5yrPreCensor, Soil5yrCensor_quart, Soil5yrCensor_dec, Soil5yrCensor_dich, Soil_1yrPreDx, Soil1yr_quart, Soil1yr_dec, Soil1yr_dich, Soil_5yrPreDx, Soil5yr_quart, Soil5yr_dec, Soil5yr_dich)
+str(CARE)
+```
+
+# Combine Cohorts into one file
+```{r}
+Soil <- full_join(Simm, CARE)
+Soil <- full_join(Soil, PFF)
+```
+
+
+# Visual EDA
+Overlapping histograms of Soil by Cohort
+```{r}
+(Soil %>% ggplot(aes(x=Soil_dx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="Soil During Disease", y="Density of Patients in Each Cohort", title="Soil Exposure During Disease by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+PFF has some higher outliers.
+
+Overlapping histograms of Soil by Cohort
+```{r}
+(Soil %>% ggplot(aes(x=Soil_5yrPreCensor, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="Soil in 5yrs Pre-Censoring", y="Density of Patients in Each Cohort", title="Soil Exposure in 5yrs Pre-Censoring by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+PFF has some higher outliers.
+
+Overlapping histograms of Soil by Cohort
+```{r}
+(Soil %>% ggplot(aes(x=Soil_5yrPreDx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="Soil in 5yrs Pre-Diagnosis", y="Density of Patients in Each Cohort", title="Soil Exposure in 5yrs Pre-Diagnosis by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+PFF has some higher outliers.

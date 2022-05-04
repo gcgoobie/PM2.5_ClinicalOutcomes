@@ -1,0 +1,309 @@
+---
+title: "Monthly Satellite PM2.5 Combined Three Cohort File"
+author: "Gillian Goobie"
+date: "11/03/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+library(forestplot)
+```
+
+# Importing Datasets
+Here I am importing the file which contains cleaned Simmons Data with PM2.5 Levels Matched
+```{r}
+outfile1 <- here("MonthlyPM25Data/Simmons_fILD_PM25_BaselineData_2021_11_03.xlsx")
+Simm <- read_excel(outfile1)
+```
+
+Here I am importing the file which contains cleaned PFF Data with PM2.5 Levels Matched
+```{r}
+outfile2 <- here("MonthlyPM25Data/PFF_fILD_PM25_BaselineData_2021_10_20.xlsx")
+PFF <- read_excel(outfile2)
+```
+
+Here I am importing the file which contains cleaned CARE-PF Data with PM2.5 Levels Matched
+```{r}
+outfile3 <- here("MonthlyPM25Data/CAREPF_fILD_PM25_BaselineData_2021_10_25.xlsx")
+CARE <- read_excel(outfile3)
+```
+
+# Create Cohort Variable
+```{r}
+Simm <- Simm %>% mutate(cohort="Simmons")
+PFF <- PFF %>% mutate(cohort="PFF")
+CARE <- CARE %>% mutate(cohort="CARE-PF")
+```
+
+# Simplify included variables in each dataframe
+```{r}
+Simm <- Simm %>% rename("lat"="lat.x", "lon"="lon.x")
+Simm <- Simm %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, ADI_nat, natADI_quart, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date,  PM_dx, PMdx_quart, PMdx_bin, PMdx_dec, PMdx_dich, PM_1yrPreCensor, PM1yrCensor_quart, PM1yrCensor_bin, PM1yrCensor_dec, PM1yrCensor_dich, PM_5yrPreCensor, PM5yrCensor_quart, PM5yrCensor_bin, PM5yrCensor_dec, PM5yrCensor_dich, PM_1yrPreDx, PM1yr_quart, PM1yr_bin, PM1yr_dec, PM1yr_dich, PM_5yrPreDx, PM5yr_quart, PM5yr_bin, PM5yr_dec, PM5yr_dich)
+str(Simm)
+```
+
+```{r}
+PFF$ID <- str_pad(PFF$ID, width=9, side="right", pad="0")
+PFF$ID <- as.numeric(PFF$ID)
+PFF$deadORtx <- as.character(PFF$deadORtx)
+PFF$status <- as.numeric(PFF$status)
+PFF$dich_smoking <- PFF$smokeHx
+PFF <- PFF %>% rename("lat"="lat.x", "lon"="lon.x")
+PFF <- PFF %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, fvc_date, dlco_date, PM_dx, PMdx_quart, PMdx_bin, PMdx_dec, PMdx_dich, PM_1yrPreCensor, PM1yrCensor_quart, PM1yrCensor_bin, PM1yrCensor_dec, PM1yrCensor_dich, PM_5yrPreCensor, PM5yrCensor_quart, PM5yrCensor_bin, PM5yrCensor_dec, PM5yrCensor_dich, PM_1yrPreDx, PM1yr_quart, PM1yr_bin, PM1yr_dec, PM1yr_dich, PM_5yrPreDx, PM5yr_quart, PM5yr_bin, PM5yr_dec, PM5yr_dich)
+str(PFF)
+```
+
+```{r}
+CARE <- CARE %>% rename("lat"="lat.x")
+CARE <- CARE %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date, PM_dx, PMdx_quart, PMdx_bin, PMdx_dec, PMdx_dich, PM_1yrPreCensor, PM1yrCensor_quart, PM1yrCensor_bin, PM1yrCensor_dec, PM1yrCensor_dich, PM_5yrPreCensor, PM5yrCensor_quart, PM5yrCensor_bin, PM5yrCensor_dec, PM5yrCensor_dich, PM_1yrPreDx, PM1yr_quart, PM1yr_bin, PM1yr_dec, PM1yr_dich, PM_5yrPreDx, PM5yr_quart, PM5yr_bin, PM5yr_dec, PM5yr_dich)
+str(CARE)
+```
+
+# Combine Cohorts into one file
+```{r}
+PM <- full_join(Simm, CARE)
+PM <- full_join(PM, PFF)
+```
+
+
+# Visual EDA
+Overlapping histograms of PM2.5 by Cohort
+```{r}
+(PM %>% ggplot(aes(x=PM_dx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="PM2.5 During Disease", y="Density of Patients in Each Cohort", title="PM2.5 Exposure During Disease by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,20))
+```
+
+Overlapping histograms of PM2.5 by Cohort
+```{r}
+(PM %>% ggplot(aes(x=PM_5yrPreCensor, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="PM2.5 in 5yrs Pre-Censoring", y="Density of Patients in Each Cohort", title="PM2.5 Exposure in 5yrs Pre-Censoring by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,20))
+```
+
+Overlapping histograms of PM2.5 by Cohort
+```{r}
+(PM %>% ggplot(aes(x=PM_5yrPreDx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="PM2.5 in 5yrs Pre-Diagnosis", y="Density of Patients in Each Cohort", title="PM2.5 Exposure in 5yrs Pre-Diagnosis by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,20))
+```
+
+# PM2.5 Breakdown of Constituent Components by Cohort
+## Proportion of Total PM2.5
+```{r}
+outfile4 <- here("AllSites_ConstituentBreakdown_2022_02_02.xlsx")
+constit <- read_excel(outfile4, sheet="Proportions")
+```
+
+Flip the dataframe so that constituents are the columns and sites are the rows
+```{r}
+constit <- t(constit)
+constit <- as.data.frame(constit)
+names(constit) <- constit %>% slice(1) %>% unlist()
+constit <- constit %>% slice (-1)
+```
+
+Now make rownames into column
+```{r}
+constit <- cbind(rownames(constit), data.frame(constit, row.names=NULL))
+constit <- constit %>% rename("site"="rownames(constit)")
+```
+
+```{r}
+constit <- constit %>% pivot_longer(cols=c(2:9), names_to="constituent")
+constit$value <- as.numeric(constit$value)
+
+#Relevel constituents
+constit$constituent <- as.factor(constit$constituent)
+constit$constituent <- fct_relevel(constit$constituent, c("SO4", "NO3", "NH4", "BC", "OM", "SS", "Soil", "Other"))
+
+#Relevel site
+constit$site  <- fct_relevel(constit$site, c("Simmons", "PFF", "CARE-PF"))
+```
+
+
+Stacked Bar chart
+```{r}
+(ggplot(constit, aes(x=site, y=value, fill=constituent))+
+         geom_col(alpha=0.9)+
+   scale_fill_manual(values=c("tomato", "steelblue", "yellow2", "black", "chartreuse4", "slategray2", "tan4", "cornsilk3"))+
+   labs(x="Cohort", 
+        y=expression(Proportion~of~Each~PM[2.5]~Constituent~Component),
+        title=expression(PM[2.5]~Constituent~Component~Breakdown~by~Cohort))+
+   theme(plot.title = element_text(hjust = 0.5)))
+```
+
+## Total Quantity in ug/m^3
+```{r}
+outfile4 <- here("AllSites_ConstituentBreakdown_2022_02_02.xlsx")
+constit <- read_excel(outfile4, sheet="MedianValues")
+```
+
+Flip the dataframe so that constituents are the columns and sites are the rows
+```{r}
+constit <- t(constit)
+constit <- as.data.frame(constit)
+names(constit) <- constit %>% slice(1) %>% unlist()
+constit <- constit %>% slice (-1)
+```
+
+Now make rownames into column
+```{r}
+constit <- cbind(rownames(constit), data.frame(constit, row.names=NULL))
+constit <- constit %>% rename("site"="rownames(constit)")
+```
+
+```{r}
+constit <- constit %>% pivot_longer(cols=c(2:9), names_to="constituent")
+constit$value <- as.numeric(constit$value)
+
+#Relevel constituents
+constit$constituent <- as.factor(constit$constituent)
+constit$constituent <- fct_relevel(constit$constituent, c("SO4", "NO3", "NH4", "BC", "OM", "SS", "Soil", "Other"))
+
+#Relevel site
+constit$site  <- fct_relevel(constit$site, c("Simmons", "PFF", "CARE-PF"))
+```
+
+
+Stacked Bar chart
+```{r}
+(ggplot(constit, aes(x=site, y=value, fill=constituent))+
+         geom_col(alpha=0.9)+
+   scale_fill_manual(values=c("tomato", "steelblue", "yellow2", "black", "chartreuse4", "slategray2", "tan4", "cornsilk3"))+
+   labs(x="Cohort", 
+        y=expression(Quantity~of~Each~PM[2.5]~Constituent~Component~(ug/m^3)),
+        title=expression(PM[2.5]~Constituent~Component~Breakdown~by~Cohort))+
+   theme(plot.title = element_text(hjust = 0.5)))
+```
+
+
+
+## Forest plot for Baseline Lung Function Analyses
+
+First make the forest plot for the FVC analysis
+```{r}
+base_data <- tibble(mean = c(NA, -0.84, -0.50, -0.87, NA, -1.44, -1.80, -3.51, NA, -3.47, 0.07, -3.31, NA, -3.74, -2.54, -4.67),
+                            lower = c(NA, -1.34, -0.93, -1.26, NA, -2.30, -2.80, -4.80, NA, -6.98, -1.29, -5.38, NA, -5.97, -4.69, -7.29),
+                            upper = c(NA, -0.34, -0.06, -0.48, NA, -0.57, -0.80, -2.22, NA, 0.03, 1.44, -1.24, NA, -1.51, -0.40, -2.04),
+                            pollutant = c("PM2.5", "Simmons", "PFF", "CARE-PF", "SO4", "Simmons", "PFF", "CARE-PF", "NO3", "Simmons", "PFF","CARE-PF", "NH4", "Simmons", "PFF", "CARE-PF"),
+                            beta = c("", "-0.84 (-1.34 to -0.34)", "-0.50 (-0.93 to -0.06)", "-0.87 (-1.26 to -0.48)", "", "-1.44 (-2.30 to -0.57)", "-1.80 (-2.80 to -0.80)", "-3.51 (-4.80 to -2.22)", "", "-3.47 (-6.98 to 0.03)", "0.07 (-1.29 to 1.44)", "-3.31 (-5.38 to -1.24)", "", "-3.74 (-5.79 to -1.51)", "-2.54 (-4.69 to -0.40)", "-4.67 (-7.29 to -2.04)"),
+                            pvalues = c("", "<0.001", "0.03", "<0.001", "", "0.001", "<0.001", "<0.001", "", "0.052", "0.92", "0.002", "", "0.001", "0.02", "<0.001"))
+
+header <- tibble(pollutant = c("Pollutant"),
+                 beta = c("Beta (95% CI)"),
+                 pvalues = c("P-value"),
+                 summary = TRUE)
+
+empty_row <- tibble(mean = NA_real_)
+
+FVC_betas <-  bind_rows(header, base_data, empty_row)
+
+FVC_betas %>% forestplot(labeltext = c(pollutant, beta, pvalues),
+                         is.summary = c(rep(TRUE,2), rep(FALSE, 3), rep(TRUE,1), rep(FALSE, 3), rep(TRUE,1), rep(FALSE, 3), rep(TRUE,1), rep(FALSE, 3)),
+                         clip = c(-8, 3),
+                         col = fpColors(box="royalblue",
+                                        line="darkblue",
+                                        summary="royalblue"))
+```
+
+Then the DLCO analysis
+```{r}
+base_data <- tibble(mean = c(NA, 0.03, -0.90, 0.24, NA, 0.17, -3.42, 2.36, NA, 0.57, 0.63, 5.67, NA, 0.95, -5.58, 7.85),
+                            lower = c(NA, -0.48, -1.32, -0.18, NA, -0.75, -4.35, 0.81, NA, -3.02, -0.65, 3.23, NA, -1.34, -7.60, 4.74),
+                            upper = c(NA, 0.54, -0.49, 0.65, NA, 1.09, -2.48, 3.90, NA, 4.16, 1.91, 8.11, NA, 3.24, -3.57, 10.95),
+                            pollutant = c("PM2.5", "Simmons", "PFF", "CARE-PF", "SO4", "Simmons", "PFF", "CARE-PF", "NO3", "Simmons", "PFF","CARE-PF", "NH4", "Simmons", "PFF", "CARE-PF"),
+                            beta = c("", "0.03 (-0.48 to 0.54)", "-0.90 (-1.32 to -0.49)", "0.24 (-0.18 to 0.65)", "", "0.17 (-0.75 to 1.09)", "-3.42 (-4.35 to -2.48)", "2.36 (0.81 to 3.90)", "", "0.57 (-3.02 to 4.16)", "0.63 (-0.65 to 1.91)", "5.67 (3.23 to 8.11)", "", "0.95 (-1.34 to 3.24)", "-5.58 (-7.60 to -3.57)", "7.85 (4.74 to 10.95)"),
+                            pvalues = c("", "0.91", "<0.001", "0.27", "", "0.72", "<0.001", "0.003", "", "0.76", "0.34", "<0.001", "", "0.41", "<0.001", "<0.001"))
+
+header <- tibble(pollutant = c("Pollutant"),
+                 beta = c("Beta (95% CI)"),
+                 pvalues = c("P-value"),
+                 summary = TRUE)
+
+empty_row <- tibble(mean = NA_real_)
+
+FVC_betas <-  bind_rows(header, base_data, empty_row)
+
+FVC_betas %>% forestplot(labeltext = c(pollutant, beta, pvalues),
+                         is.summary = c(rep(TRUE,2), rep(FALSE, 3), rep(TRUE,1), rep(FALSE, 3), rep(TRUE,1), rep(FALSE, 3), rep(TRUE,1), rep(FALSE, 3)),
+                         clip = c(-8, 12),
+                         col = fpColors(box="royalblue",
+                                        line="darkblue",
+                                        summary="royalblue"))
+```
+
+
+# Determine Median Diagnosis Year
+```{r}
+Simm <- Simm %>% mutate(dx_yr = year(dx_date))
+str(Simm$dx_yr)
+
+PFF <- PFF %>% mutate(dx_yr = year(dx_date))
+
+CARE <- CARE %>% mutate(dx_yr = year(dx_date))
+```
+
+```{r}
+summary(Simm$dx_yr)
+summary(PFF$dx_yr)
+summary(CARE$dx_yr)
+```
+
+```{r}
+mean(c(2010, 2015, 2016))
+```
+So for figure 1, I should either choose 2013 or 2014 image.

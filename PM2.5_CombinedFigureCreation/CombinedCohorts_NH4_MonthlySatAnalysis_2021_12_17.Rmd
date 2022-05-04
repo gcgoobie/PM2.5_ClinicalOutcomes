@@ -1,0 +1,141 @@
+---
+title: "Monthly Satellite NH4 Combined Three Cohort File"
+author: "Gillian Goobie"
+date: "12/17/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+```
+
+# Importing Datasets
+Here I am importing the file which contains cleaned Simmons Data with NH4 Levels Matched
+```{r}
+outfile1 <- here("Simmons_fILD_NH4_BaselineData_2021_12_17.xlsx")
+Simm <- read_excel(outfile1)
+```
+
+Here I am importing the file which contains cleaned PFF Data with NH4 Levels Matched
+```{r}
+outfile2 <- here("PFF_fILD_NH4_BaselineData_ConsentDateRef_2021_12_17.xlsx")
+PFF <- read_excel(outfile2)
+```
+
+Here I am importing the file which contains cleaned CARE-PF Data with NH4 Levels Matched
+```{r}
+outfile3 <- here("CAREPF_fILD_NH4_BaselineData_2021_12_17.xlsx")
+CARE <- read_excel(outfile3)
+```
+
+# Create Cohort Variable
+```{r}
+Simm <- Simm %>% mutate(cohort="Simmons")
+PFF <- PFF %>% mutate(cohort="PFF")
+CARE <- CARE %>% mutate(cohort="CARE-PF")
+```
+
+# Simplify included variables in each dataframe
+```{r}
+Simm <- Simm %>% rename("lat"="lat.x", "lon"="lon.x")
+Simm <- Simm %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, ADI_nat, natADI_quart, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date,  NH4_dx, NH4dx_quart, NH4dx_dec, NH4dx_dich, NH4_1yrPreCensor, NH41yrCensor_quart, NH41yrCensor_dec, NH41yrCensor_dich, NH4_5yrPreCensor, NH45yrCensor_quart, NH45yrCensor_dec, NH45yrCensor_dich, NH4_1yrPreDx, NH41yr_quart, NH41yr_dec, NH41yr_dich, NH4_5yrPreDx, NH45yr_quart, NH45yr_dec, NH45yr_dich)
+str(Simm)
+```
+
+```{r}
+PFF$ID <- str_pad(PFF$ID, width=9, side="right", pad="0")
+PFF$ID <- as.numeric(PFF$ID)
+PFF$deadORtx <- as.character(PFF$deadORtx)
+PFF$status <- as.numeric(PFF$status)
+PFF$dich_smoking <- PFF$smokeHx
+PFF <- PFF %>% rename("lat"="lat.x", "lon"="lon.x")
+PFF <- PFF %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, fvc_date, dlco_date, NH4_dx, NH4dx_quart, NH4dx_dec, NH4dx_dich, NH4_1yrPreCensor, NH41yrCensor_quart, NH41yrCensor_dec, NH41yrCensor_dich, NH4_5yrPreCensor, NH45yrCensor_quart, NH45yrCensor_dec, NH45yrCensor_dich, NH4_1yrPreDx, NH41yr_dec, NH41yr_dich, NH4_5yrPreDx, NH45yr_quart, NH45yr_dec, NH45yr_dich)
+str(PFF)
+```
+
+```{r}
+CARE <- CARE %>% rename("lat"="lat.x")
+CARE <- CARE %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date, NH4_dx, NH4dx_quart, NH4dx_dec, NH4dx_dich, NH4_1yrPreCensor, NH41yrCensor_quart, NH41yrCensor_dec, NH41yrCensor_dich, NH4_5yrPreCensor, NH45yrCensor_quart, NH45yrCensor_dec, NH45yrCensor_dich, NH4_1yrPreDx, NH41yr_quart, NH41yr_dec, NH41yr_dich, NH4_5yrPreDx, NH45yr_quart, NH45yr_dec, NH45yr_dich)
+str(CARE)
+```
+
+# Combine Cohorts into one file
+```{r}
+NH4 <- full_join(Simm, CARE)
+NH4 <- full_join(NH4, PFF)
+```
+
+
+# Visual EDA
+Overlapping histograms of NH4 by Cohort
+```{r}
+(NH4 %>% ggplot(aes(x=NH4_dx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="NH4 During Disease", y="Density of Patients in Each Cohort", title="NH4 Exposure During Disease by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+
+Overlapping histograms of NH4 by Cohort
+```{r}
+(NH4 %>% ggplot(aes(x=NH4_5yrPreCensor, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="NH4 in 5yrs Pre-Censoring", y="Density of Patients in Each Cohort", title="NH4 Exposure in 5yrs Pre-Censoring by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```
+
+Overlapping histograms of NH4 by Cohort
+```{r}
+(NH4 %>% ggplot(aes(x=NH4_5yrPreDx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="NH4 in 5yrs Pre-Diagnosis", y="Density of Patients in Each Cohort", title="NH4 Exposure in 5yrs Pre-Diagnosis by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,3))
+```

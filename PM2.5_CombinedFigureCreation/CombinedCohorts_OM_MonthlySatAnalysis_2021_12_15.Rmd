@@ -1,0 +1,144 @@
+---
+title: "Monthly Satellite OM Combined Three Cohort File"
+author: "Gillian Goobie"
+date: "12/15/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+```
+
+# Importing Datasets
+Here I am importing the file which contains cleaned Simmons Data with OM Levels Matched
+```{r}
+outfile1 <- here("Simmons_fILD_OM_BaselineData_2021_12_15.xlsx")
+Simm <- read_excel(outfile1)
+```
+
+Here I am importing the file which contains cleaned PFF Data with OM Levels Matched
+```{r}
+outfile2 <- here("PFF_fILD_OM_BaselineData_ConsentDateRef_2021_12_15.xlsx")
+PFF <- read_excel(outfile2)
+```
+
+Here I am importing the file which contains cleaned CARE-PF Data with OM Levels Matched
+```{r}
+outfile3 <- here("CAREPF_fILD_OM_BaselineData_2021_12_15.xlsx")
+CARE <- read_excel(outfile3)
+```
+
+# Create Cohort Variable
+```{r}
+Simm <- Simm %>% mutate(cohort="Simmons")
+PFF <- PFF %>% mutate(cohort="PFF")
+CARE <- CARE %>% mutate(cohort="CARE-PF")
+```
+
+# Simplify included variables in each dataframe
+```{r}
+Simm <- Simm %>% rename("lat"="lat.x", "lon"="lon.x")
+Simm <- Simm %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, ADI_nat, natADI_quart, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date,  OM_dx, OMdx_quart, OMdx_dec, OMdx_dich, OM_1yrPreCensor, OM1yrCensor_quart, OM1yrCensor_dec, OM1yrCensor_dich, OM_5yrPreCensor, OM5yrCensor_quart, OM5yrCensor_dec, OM5yrCensor_dich, OM_1yrPreDx, OM1yr_quart, OM1yr_dec, OM1yr_dich, OM_5yrPreDx, OM5yr_quart, OM5yr_dec, OM5yr_dich)
+str(Simm)
+```
+
+```{r}
+PFF$ID <- str_pad(PFF$ID, width=9, side="right", pad="0")
+PFF$ID <- as.numeric(PFF$ID)
+PFF$deadORtx <- as.character(PFF$deadORtx)
+PFF$status <- as.numeric(PFF$status)
+PFF$dich_smoking <- PFF$smokeHx
+PFF <- PFF %>% rename("lat"="lat.x", "lon"="lon.x")
+PFF <- PFF %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, fvc_date, dlco_date, OM_dx, OMdx_quart, OMdx_dec, OMdx_dich, OM_1yrPreCensor, OM1yrCensor_quart, OM1yrCensor_dec, OM1yrCensor_dich, OM_5yrPreCensor, OM5yrCensor_quart, OM5yrCensor_dec, OM5yrCensor_dich, OM_1yrPreDx, OM1yr_dec, OM1yr_dich, OM_5yrPreDx, OM5yr_quart, OM5yr_dec, OM5yr_dich)
+str(PFF)
+```
+
+```{r}
+CARE <- CARE %>% rename("lat"="lat.x")
+CARE <- CARE %>% dplyr::select(ID, sex, race, dich_Race, ethnicity, smokeHx, dich_smoking, age_dx, metro, cohort, lat, lon, dx, dx_group, dx_IPF, fvc_pct, dlco_pct, deadORtx, status, time_DeathTxCensor, dx_date, death_date, tx_date, pft_date, OM_dx, OMdx_quart, OMdx_dec, OMdx_dich, OM_1yrPreCensor, OM1yrCensor_quart, OM1yrCensor_dec, OM1yrCensor_dich, OM_5yrPreCensor, OM5yrCensor_quart, OM5yrCensor_dec, OM5yrCensor_dich, OM_1yrPreDx, OM1yr_quart, OM1yr_dec, OM1yr_dich, OM_5yrPreDx, OM5yr_quart, OM5yr_dec, OM5yr_dich)
+str(CARE)
+```
+
+# Combine Cohorts into one file
+```{r}
+OM <- full_join(Simm, CARE)
+OM <- full_join(OM, PFF)
+```
+
+
+# Visual EDA
+Overlapping histograms of OM by Cohort
+```{r}
+(OM %>% ggplot(aes(x=OM_dx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="OM During Disease", y="Density of Patients in Each Cohort", title="OM Exposure During Disease by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,10))
+```
+A lot more overlap of the three cohorts than with SO4.
+
+Overlapping histograms of OM by Cohort
+```{r}
+(OM %>% ggplot(aes(x=OM_5yrPreCensor, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="OM in 5yrs Pre-Censoring", y="Density of Patients in Each Cohort", title="OM Exposure in 5yrs Pre-Censoring by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,7.5))
+```
+A lot more overlap of the three cohorts than with SO4.
+
+Overlapping histograms of OM by Cohort
+```{r}
+(OM %>% ggplot(aes(x=OM_5yrPreDx, group=cohort, fill=cohort))+
+    geom_density(adjust=1.5, alpha=0.4)+
+   scale_fill_manual(values=c("#FF0000", "#00B0F0", "#FFFF00"))+
+   labs(x="OM in 5yrs Pre-Diagnosis", y="Density of Patients in Each Cohort", title="OM Exposure in 5yrs Pre-Diagnosis by Cohort")+
+   theme(plot.title = element_text(hjust = 0.5))+
+    xlim(0,7.5))
+```
+A lot more overlap of the three cohorts than with SO4 with a bimodal distribution in CARE-PF and a generally narrower distrib in Simmons.
