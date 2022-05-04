@@ -1,0 +1,944 @@
+---
+title: "Monthly Satellite PM Analysis with Complete PFF Data using Consent Date as Reference - Updated Dichotomized PM25"
+author: "Gillian Goobie"
+date: "02/12/2022"
+output: 
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+```
+
+# Importing Datasets
+Here I am importing the file which contains monthly PM level estimates by satellite at nearest lon/lat to PFF patient residential addresses. These are linked to the patient ID.
+```{r}
+outfile1 <- here("MonthlyPM25Data/PFF_fILD_2000_2018_PM25_2021_10_08.xlsx")
+PM <- read_excel(outfile1)
+PM <- PM %>% rename("SSID"="ID")
+```
+
+Match up PM ID to SSID from matching file
+```{r}
+outfile2 <- here("MonthlyPM25Data/PFF_fILD_PM25_BaselineData_2021_10_20.xlsx")
+PM25 <- read_excel(outfile2)
+PM25 <- PM25 %>% dplyr::select(ID, SSID)
+```
+
+Merge PM and PM
+```{r}
+PM <- left_join(PM, PM25, by="SSID")
+```
+
+
+
+Here I am importing the file containing the complete baseline clinical and demographic data for 1905 PFF patients
+```{r}
+outfile3 <- here("PFF_fILDPts_BaselineData_ConsentDateReference_2021_11_17.xlsx")
+PFF <- read_excel(outfile3)
+```
+
+# Merging Datasets
+I used a inner_join here so that the complete "PM" dataframe only includes patients with fILD that have all baseline demographics and PM data.
+```{r}
+PM <- inner_join(PFF, PM, by="SSID")
+```
+This results in 1905 complete records
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+
+# Pivoting to Long Format
+First we need to convert the PM dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(45:272), names_to="PM_date", names_prefix="PM25_")
+```
+
+## Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$PM_date <- gsub("jan", "01-01-20", PMx$PM_date)
+PMx$PM_date <- gsub("feb", "01-02-20", PMx$PM_date)
+PMx$PM_date <- gsub("mar", "01-03-20", PMx$PM_date)
+PMx$PM_date <- gsub("apr", "01-04-20", PMx$PM_date)
+PMx$PM_date <- gsub("may", "01-05-20", PMx$PM_date)
+PMx$PM_date <- gsub("jun", "01-06-20", PMx$PM_date)
+PMx$PM_date <- gsub("jul", "01-07-20", PMx$PM_date)
+PMx$PM_date <- gsub("aug", "01-08-20", PMx$PM_date)
+PMx$PM_date <- gsub("sep", "01-09-20", PMx$PM_date)
+PMx$PM_date <- gsub("oct", "01-10-20", PMx$PM_date)
+PMx$PM_date <- gsub("nov", "01-11-20", PMx$PM_date)
+PMx$PM_date <- gsub("dec", "01-12-20", PMx$PM_date)
+
+PMx$PM_date <- format(as.Date(PMx$PM_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$PM_date <- as.Date(PMx$PM_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("dx_date", "consent_date", "death_date", "tx_date", "sample_date", "fvc_date", "dlco_date", "censor_date", "deathORtx_date", "DeathTxCensor_date"), as.Date)
+str(PM)
+```
+
+# Creating Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+## 5yrs Pre-Death/Transplant/Censoring
+Here I am calculating the average PM value in the 5yrs prior to death/lung transplant/censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(PM_5yrPreCensor = mean(value[ymd(PM_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(PM_date)<=ymd(DeathTxCensor_date)]))
+           
+           
+#mean(value[ymd(PM_date) == ymd(DeathTxCensor_date) | ymd(PM_date) == (ymd(DeathTxCensor_date) - years(1))]))
+```
+
+## 5 years Prior to Diagnosis
+Here I am calculating the average PM value in the year of diagnosis and the 5 years leading up to diagnosis (so if all years available, it will be the average of 6 years).
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(PM_5yrPreDx = mean(value[ymd(PM_date) <= ymd(dx_date) & 
+                                    ymd(PM_date) >= (ymd(dx_date)-years(5))]))
+```
+
+## Remove Dataframes not in use
+```{r}
+rm(list=c("PMx", "PFF"))
+```
+
+## Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific PM exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to our  observations that we had before.
+
+## Remove UPitt patients
+```{r}
+PM <- PM %>% filter(!str_detect(SSID, "^08R"))
+```
+This now takes us down to 1870 observations after we remove UPitt patients which may be doubled up in our Simmons analyses
+
+
+# Creating High vs Low Exposure Groups
+Cutoffs are based on calculations performed where the median total PM2.5 mass across all three cohorts was averaged, then the median constituent component proportion of total PM2.5 across all three cohorts was averaged. Subsequently, the average proportion of each constituent across the three cohorts was multiplied by the average of the total PM2.5 mass medians across the three cohorts to get the approximate median total mass of each constituent across all three cohorts, which was used to define the low vs high exposure cut points.
+
+## PM 5yrs Pre-Censor High vs Low
+```{r}
+PM$PM5yrCensor_dich <- cut(PM$PM_5yrPreCensor,
+                      breaks=c(0, 8, 50),
+                      labels=c("Low", "High"))
+summary(PM$PM5yrCensor_dich)
+class(PM$PM5yrCensor_dich)
+```
+
+
+## PM 5yrs Pre-Diagnosis High vs Low
+```{r}
+PM$PM5yr_dich <- cut(PM$PM_5yrPreDx,
+                      breaks=c(0, 8, 50),
+                      labels=c("Low", "High"))
+summary(PM$PM5yr_dich)
+class(PM$PM5yr_dich)
+```
+
+
+
+# Creating Other New Variables
+## IPF vs Other Diagnosis
+```{r}
+PM <- PM %>% 
+  mutate(dx_IPF=ifelse(dx=="IPF", "IPF", "not_IPF"))    
+```
+
+# Releveling Factors
+Here I am releveling factors so that they are in an intuitive order for my later analyses.
+```{r}
+PM$sex <- fct_relevel(PM$sex, c("Male","Female"))
+PM$race <- fct_relevel(PM$race, c("W","B","A","I","P","U"))
+PM$ethnicity <- fct_relevel(PM$ethnicity, c("N","H","U"))
+PM$dich_Race <- fct_relevel(PM$dich_Race, c("White","Non-White"))
+PM$smokeHx <- fct_relevel(PM$smokeHx, c("Never","Ever"))
+
+#For dx and dx_group, I just want IPF to be first and then the rest of the categories are alphabetical
+PM$dx <- fct_relevel(PM$dx, c("IPF"))
+PM$dx_group <- fct_relevel(PM$dx_group, c("IPF"))
+PM$dx_IPF <- fct_relevel(PM$dx_IPF, c("IPF"))
+str(PM)
+```
+
+
+# Creating Metropolitan Category
+Using https://www.ers.usda.gov/data-products/rural-urban-commuting-area-codes.aspx "2010 Rural-Urban Commuting Area Codes ZIP code file", which will allow me to match RUCA code to 5 digit zip code to determine if the patient lives in an area considered urban or rural. The interpretation of the code is below:
+
+Primary RUCA codes, 2010
+Code	Classification description
+1	Metropolitan area core: primary flow within an urbanized area (UA)
+2	Metropolitan area high commuting: primary flow 30% or more to a UA
+3	Metropolitan area low commuting: primary flow 10% to 30% to a UA
+4	Micropolitan area core: primary flow within an urban cluster of 10,000 to 49,999 (large UC)
+5	Micropolitan high commuting: primary flow 30% or more to a large UC
+6	Micropolitan low commuting: primary flow 10% to 30% to a large UC
+7	Small town core: primary flow within an urban cluster of 2,500 to 9,999 (small UC)
+8	Small town high commuting: primary flow 30% or more to a small UC
+9	Small town low commuting: primary flow 10% to 30% to a small UC
+10	Rural areas: primary flow to a tract outside a UA or UC
+99	Not coded: Census tract has zero population and no rural-urban identifier information
+
+I will classify RUCA codes 1-6 as urban and 7-10 as rural for now.
+
+First I need to upload the RUCA to zip code file
+```{r}
+outfile3 <- here("RUCA2010zipcode_2021_10_22.xlsx")
+ruca <- read_excel(outfile3, sheet="Data")
+```
+
+Then I will simplify the dataframe to include only what I need
+```{r}
+ruca <- ruca %>% dplyr::select(ZIP_CODE, RUCA1)
+ruca <- ruca %>% rename("zip"="ZIP_CODE", "ruca"="RUCA1")
+```
+
+Then I will merge with my PFF dataframe
+```{r}
+PM <- left_join(PM, ruca, by="zip")
+```
+
+Then I will make rural vs urban column
+```{r}
+PM <- PM %>% mutate(metro=ifelse(ruca>6, "rural", ifelse(ruca<4, "metropolitan", "micropolitan")))
+```
+
+# Putting ID column first
+```{r}
+PM <- PM %>% dplyr::select("ID", everything())
+```
+
+# Creating Datasets with only Metropolitan Patients
+```{r}
+PM_metro <- PM %>% filter(metro=="metropolitan")
+```
+This results in a dataset of  patients
+
+# Creating Datasets with only IPF Patients
+```{r}
+PM_IPF <- PM %>% filter(dx=="IPF")
+```
+This results in a dataset of  pts
+
+# Creating Datasets with only CTD Patients
+```{r}
+PM_CTD <- PM %>% filter(dx_group=="CTD-ILD")
+```
+This results in a dataset of  pts
+
+# Creating Site Variable
+```{r}
+PM$site <- substr(PM$SSID, 1,3)
+PM$site <- as.factor(PM$site)
+str(PM$site)
+```
+
+# Export Excel File with PM Data Matched to Patients and Full Cohort Data
+```{r}
+write_xlsx(PM, path="Final_PFF_fILD_PM_BaselineData_2022_02_12.xlsx")
+```
+
+# Exploratory Data Analysis
+This is a function that allows me to make tables which summarize the count and percentages of each level of factor variables
+```{r}
+n_prop_tbl <- function(x) {
+  tbl <- table(x)
+  res <- cbind(tbl, round(prop.table(tbl)*100,2))
+  colnames(res) <-  c('Count', 'Percentage')
+  res
+}
+```
+
+
+## PM Breakdown
+```{r}
+summary(PM$PM_5yrPreCensor)
+summary(PM$PM_5yrPreDx)
+```
+
+## Site Breakdown
+```{r}
+n_prop_tbl(PM$site)
+```
+
+
+## Sex Breakdown
+```{r}
+n_prop_tbl(PM$sex)
+```
+
+## Race and Ethnicity Breakdown 
+```{r}
+n_prop_tbl(PM$race)
+
+n_prop_tbl(PM$ethnicity)
+```
+
+## Smoking History Breakdown
+```{r}
+n_prop_tbl(PM$smokeHx)
+```
+
+
+## Diagnostic Group Breakdown
+```{r}
+n_prop_tbl(PM$dx_group)
+```
+
+
+## State Breakdown
+```{r}
+n_prop_tbl(PM$state)
+```
+
+## Metropolitan Breakdown
+```{r}
+n_prop_tbl(PM$metro)
+```
+Overwhelming majority of the patients are considered "metropolitan".
+
+## Age at Diagnosis Breakdown
+```{r}
+shapiro.test(PM$age_dx)
+#Shapiro tests tells us that age_dx is not normally distributed, so should report median, IQR
+summary(PM$age_dx)
+```
+Not normally distributed.
+
+## Vital Status Breakdown
+```{r}
+n_prop_tbl(PM$status)
+```
+
+
+## Baseline Lung Function Breakdown
+```{r}
+shapiro.test(PM$fvc_pct)
+summary(PM$fvc_pct)
+sd(PM$fvc_pct, na.rm=T)
+```
+
+```{r}
+shapiro.test(PM$dlco_pct)
+summary(PM$dlco_pct)
+sd(PM$dlco_pct, na.rm=T)
+```
+
+## Time to Censoring Breakdown
+```{r}
+summary(PM$time_DeathTxCensor)
+sd(PM$time_DeathTxCensor, na.rm=T)
+```
+Average time to censoring is , which is lower than CARE-PF or Simmons. This is shortened by the fact that we are using the consent_date rather than the dx_date as the reference date. 
+
+
+## Breakdown of Characteristics by Low vs High
+### PM_5yrPreCensor Low vs High
+```{r}
+table(PM$sex, PM$PM5yrCensor_dich)
+table(PM$race, PM$PM5yrCensor_dich)
+table(PM$dich_Race, PM$PM5yrCensor_dich)
+table(PM$dx_group, PM$PM5yrCensor_dich)
+table(PM$smokeHx, PM$PM5yrCensor_dich)
+table(PM$metro, PM$PM5yrCensor_dich)
+table(PM$state, PM$PM5yrCensor_dich)
+table(PM$status, PM$PM5yrCensor_dich)
+group_by(PM, PM5yrCensor_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(age_dx, na.rm = TRUE),
+    sd = sd(age_dx, na.rm = TRUE),
+    median = median(age_dx, na.rm = TRUE),
+    quantile = quantile(age_dx, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(age_dx, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, PM5yrCensor_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(fvc_pct, na.rm = TRUE),
+    sd = sd(fvc_pct, na.rm = TRUE),
+    median = median(fvc_pct, na.rm = TRUE),
+    quantile = quantile(fvc_pct, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(fvc_pct, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, PM5yrCensor_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(dlco_pct, na.rm = TRUE),
+    sd = sd(dlco_pct, na.rm = TRUE),
+    median = median(dlco_pct, na.rm = TRUE),
+    quantile = quantile(dlco_pct, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(dlco_pct, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, PM5yrCensor_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(time_DeathTxCensor, na.rm = TRUE),
+    sd = sd(time_DeathTxCensor, na.rm = TRUE),
+    median = median(time_DeathTxCensor, na.rm = TRUE),
+    quantile = quantile(time_DeathTxCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(time_DeathTxCensor, probs=c(0.75), na.rm = TRUE)
+  )
+```
+
+### PM_5yrDx Low vs High
+```{r}
+table(PM$sex, PM$PM5yr_dich)
+table(PM$race, PM$PM5yr_dich)
+table(PM$dich_Race, PM$PM5yr_dich)
+table(PM$dx_group, PM$PM5yr_dich)
+table(PM$smokeHx, PM$PM5yr_dich)
+table(PM$metro, PM$PM5yr_dich)
+table(PM$state, PM$PM5yr_dich)
+table(PM$status, PM$PM5yr_dich)
+group_by(PM, PM5yr_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(age_dx, na.rm = TRUE),
+    sd = sd(age_dx, na.rm = TRUE),
+    median = median(age_dx, na.rm = TRUE),
+    quantile = quantile(age_dx, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(age_dx, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, PM5yr_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(fvc_pct, na.rm = TRUE),
+    sd = sd(fvc_pct, na.rm = TRUE),
+    median = median(fvc_pct, na.rm = TRUE),
+    quantile = quantile(fvc_pct, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(fvc_pct, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, PM5yr_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(dlco_pct, na.rm = TRUE),
+    sd = sd(dlco_pct, na.rm = TRUE),
+    median = median(dlco_pct, na.rm = TRUE),
+    quantile = quantile(dlco_pct, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(dlco_pct, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, PM5yr_dich) %>%
+  summarise(
+    count = n(),
+    mean = mean(time_DeathTxCensor, na.rm = TRUE),
+    sd = sd(time_DeathTxCensor, na.rm = TRUE),
+    median = median(time_DeathTxCensor, na.rm = TRUE),
+    quantile = quantile(time_DeathTxCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(time_DeathTxCensor, probs=c(0.75), na.rm = TRUE)
+  )
+```
+
+
+## Visual EDA
+### Histograms
+Histogram of PM Exposure 5yr Pre-Death/Transplant/Censoring
+```{r}
+(PM %>% ggplot(aes(x=PM_5yrPreCensor))+
+   geom_histogram(fill="blue", color="black")+
+   labs(x="Average PM Level 5yr Prior to Death/Transplant/Censoring", y="Number of patients with fILD", title="Average PM 5yr Prior to Death/Transplant/Censoring")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   xlim(0,20))
+```
+
+
+Histogram of PM Exposure 5yr Pre-Dx
+```{r}
+(PM %>% ggplot(aes(x=PM_5yrPreDx))+
+   geom_histogram(fill="blue", color="black")+
+   labs(x="Average PM Level 5yr Prior to Diagnosis", y="Number of patients with fILD", title="Average PM 5yr Prior to Diagnosis")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   xlim(0,20))
+```
+
+
+### Violin plots of PM vs other demographic variables
+Violin plot wrapping boxplot to visualize sex vs PM_5yrPreCensor
+```{r}
+(PM %>% ggplot(aes(x=sex, y=PM_5yrPreCensor, fill=sex))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Sex", y="Average PM 5 Years Pre-Censor", title="PM Exposure Pre-Censor by Sex")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+Violin plot wrapping boxplot to visualize sex vs PM_5yrPreDx
+```{r}
+(PM %>% ggplot(aes(x=sex, y=PM_5yrPreDx, fill=sex))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Sex", y="Average PM 5 Years Pre-Diagnosis", title="PM Exposure Pre-Diagnosis by Sex")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+Violin plot wrapping boxplot to visualize dich_Race vs PM_5yrPreCensor
+```{r}
+(PM %>% ggplot(aes(x=dich_Race, y=PM_5yrPreCensor, fill=dich_Race))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Race", y="Average PM 5 Years Pre-Censoring", title="PM Exposure Pre-Censoring by Race")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+
+Violin plot wrapping boxplot to visualize race vs PM_5yrPreCensor
+```{r}
+(PM %>% ggplot(aes(x=race, y=PM_5yrPreCensor, fill=race))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Race", y="Average PM 5 Years Pre-Censoring", title="PM Exposure Pre-Censoring by Race")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+Violin plot wrapping boxplot to visualize dich_Race vs PM_5yrPreDx
+```{r}
+(PM %>% ggplot(aes(x=dich_Race, y=PM_5yrPreDx, fill=dich_Race))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Race", y="Average PM 5 Years Pre-Diagnosis", title="PM Exposure Pre-Diagnosis by Race")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+Violin plot wrapping boxplot to visualize race vs PM_5yrPreDx
+```{r}
+(PM %>% ggplot(aes(x=race, y=PM_5yrPreDx, fill=race))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Race", y="Average PM 5 Years Pre-Diagnosis", title="PM Exposure Pre-Diagnosis by Race")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+Violin plot wrapping boxplot to visualize metro vs PM_5yrPreCensor
+```{r}
+(PM %>% ggplot(aes(x=metro, y=PM_5yrPreCensor, fill=metro))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Residential Location", y="Average PM in 5yrs Pre-Censoring", title="PM Exposure in 5yrs Pre-Censoring by Residential Location")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+
+Violin plot wrapping boxplot to visualize metro vs PM_5yrPreDx
+```{r}
+(PM %>% ggplot(aes(x=metro, y=PM_5yrPreDx, fill=metro))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="Residential Location", y="Average PM in 5yrs Pre-Diagnosis", title="PM Exposure in 5yrs Pre-Diagnosis by Residential Location")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+
+### Scatterplots of PM over time
+Scatterplot showing average PM 5yr pre-death/transplant/censoring
+```{r}
+(PM %>% ggplot(aes(x=dx_date, y=PM_5yrPreCensor))+
+   geom_point()+
+   labs(x="Date of Diagnosis", y="PM Exposure 5yr Prior Death/Transplant/Censoring", title="PM 5yr Prior to Death/Transplant/Censoring vs Date of Diagnosis")+
+   geom_smooth(method="lm", se = FALSE) +
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+
+Scatterplot showing average PM 5yr pre-diagnosis
+```{r}
+(PM %>% ggplot(aes(x=dx_date, y=PM_5yrPreDx))+
+   geom_point()+
+   labs(x="Date of Diagnosis", y="PM Exposure 5yr Prior Diagnosis", title="PM 5yr Prior to Diagnosis vs Date of Diagnosis")+
+   geom_smooth(method="lm", se = FALSE) +
+   theme(plot.title = element_text(hjust = 0.5))+
+   ylim(0,20))
+```
+
+
+# Cox PH Models for Association between PM and Death or Lung Transplant
+## PM 5yrs Pre-Censoring Models
+### Continuous PM 5yrs pre-censoring until Death/Transplant/Censoring
+Start with the simplest model just looking at PM in the year of and 5yrs prior to death/transplant/censoring
+```{r}
+coxPH_model1 <- coxph(Surv(time_DeathTxCensor, deadORtx==1) ~ PM_5yrPreCensor, data=PM, id=ID)
+summary(coxPH_model1)
+```
+
+
+Partial model
+```{r}
+coxPH_model2 <- coxph(Surv(time_DeathTxCensor, deadORtx==1) ~ PM_5yrPreCensor + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro, data=PM, id=ID)
+summary(coxPH_model2)
+```
+
+
+Complete model
+```{r}
+coxPH_model3 <- coxph(Surv(time_DeathTxCensor, deadORtx==1) ~ PM_5yrPreCensor + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro + fvc_pct + dlco_pct, data=PM, id=ID)
+summary(coxPH_model3)
+```
+
+
+### Smoothed HR Function for 5yr Pre-Censor Continuous
+Base model
+```{r}
+#coxPH_model1_tvc <- cox.tvc(coxPH_model1, "PM_5yrPreCensor")
+#print(coxPH_model1_tvc)
+#plot(coxPH_model1_tvc)
+```
+Issues running this code in PFF cohort.
+
+Partial model (all covariates except lung function)
+```{r}
+#coxPH_model2_tvc <- cox.tvc(coxPH_model2, "PM_5yrPreCensor")
+#print(coxPH_model2_tvc)
+#plot(coxPH_model2_tvc)
+```
+Issues running this code in PFF cohort.
+
+```{r}
+#coxPH_model3_tvc <- cox.tvc(coxPH_model3, "PM_5yrPreCensor")
+#print(coxPH_model3_tvc)
+#plot(coxPH_model3_tvc)
+```
+Issues running this code in PFF cohort.
+
+### Variable HR for PM risk in 5yr Pre-Cenosr
+Want a plot with x-axis of PM level and y-axis of HR
+
+Unadjusted model
+```{r}
+#First need to make dataframe that only includes patients with time_DeathTxCensor
+PMx <- PM %>% filter(!is.na(PM_5yrPreCensor) & !is.na(time_DeathTxCensor))
+
+#Then make survival function
+surv1 <- Surv(PMx$time_DeathTxCensor, PMx$deadORtx==1)
+fit1 <- coxph(surv1 ~ pspline(PMx$PM_5yrPreCensor, df=4))
+predicted <- predict(fit1, type="terms", se.fit=T, terms=1)
+
+#Then plot
+plot(PMx$PM_5yrPreCensor, exp(predicted$fit), type="n", xlim=c(0,20), ylim=c(0,4))
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit)), col = "red" , lty = 1 )
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit + 1.96 * predicted$se)), col = "orange" , lty = 2 )
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit - 1.96 * predicted$se)), col = "orange" , lty = 2 )
+```
+
+Partially-adjusted model
+```{r}
+#First need to make dataframe that only includes patients with time_DeathTxCensor
+PMx <- PM %>% filter(!is.na(PM_5yrPreCensor) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(dx_IPF) & !is.na(metro))
+
+#Then survival function
+surv1 <- Surv(PMx$time_DeathTxCensor, PMx$deadORtx==1)
+fit1 <- coxph(surv1 ~ pspline(PMx$PM_5yrPreCensor, df=4) + PMx$age_dx + PMx$sex + PMx$smokeHx + PMx$dich_Race + PMx$dx_IPF + PMx$metro)
+predicted <- predict(fit1, type="terms", se.fit=T, terms=1)
+
+#Then plot
+plot(PMx$PM_5yrPreCensor, exp(predicted$fit), type="n", xlim=c(0,20), ylim=c(0,4))
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit)), col = "red" , lty = 1 )
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit + 1.96 * predicted$se)), col = "orange" , lty = 2 )
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit - 1.96 * predicted$se)), col = "orange" , lty = 2 )
+```
+
+Fully-adjusted model
+```{r}
+#First need to make dataframe that only includes patients with time_DeathTxCensor
+PMx <- PM %>% filter(!is.na(PM_5yrPreCensor) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(dx_IPF) & !is.na(metro) & !is.na(fvc_pct) & !is.na(dlco_pct))
+
+#Then survival function
+surv1 <- Surv(PMx$time_DeathTxCensor, PMx$deadORtx==1)
+fit1 <- coxph(surv1 ~ pspline(PMx$PM_5yrPreCensor, df=4) + PMx$age_dx + PMx$sex + PMx$smokeHx + PMx$dich_Race + PMx$dx_IPF + PMx$metro + PMx$fvc_pct + PMx$dlco_pct)
+predicted <- predict(fit1, type="terms", se.fit=T, terms=1)
+
+#Then plot
+plot(PMx$PM_5yrPreCensor, exp(predicted$fit), type="n", xlim=c(0,20), ylim=c(0,4))
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit)), col = "red" , lty = 1 )
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit + 1.96 * predicted$se)), col = "orange" , lty = 2 )
+lines(sm.spline(PMx$PM_5yrPreCensor, exp(predicted$fit - 1.96 * predicted$se)), col = "orange" , lty = 2 )
+```
+
+
+### PM Low vs High 5yrs Pre-Censoring
+Base Model:
+```{r}
+coxPH_model7 <- coxph(Surv(time_DeathTxCensor, deadORtx==1) ~ PM5yrCensor_dich, data=PM, id=ID)
+summary(coxPH_model7)
+```
+
+
+Partial model
+```{r}
+coxPH_model8 <- coxph(Surv(time_DeathTxCensor, deadORtx==1) ~ PM5yrCensor_dich + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro, data=PM, id=ID)
+summary(coxPH_model8)
+```
+
+
+Complete model
+```{r}
+coxPH_model9 <- coxph(Surv(time_DeathTxCensor, deadORtx==1) ~ PM5yrCensor_dich + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro + fvc_pct + dlco_pct, data=PM, id=ID)
+summary(coxPH_model9)
+```
+
+
+Now I will make a Kaplan-Meier survival curve, discretized by PM during disease low vs high:
+```{r, fig.height=5, fig.width=7}
+surv1 <- survfit(Surv(time_DeathTxCensor, deadORtx==1) ~ PM5yrCensor_dich, data=PM)
+(ggsurvplot(surv1, 
+            palette=c("dodgerblue4","firebrick4"),
+            censor=TRUE,
+            pval=TRUE,
+            xlim=c(0,5),
+            legend="right",
+           data=PM,
+           legend.title="PM Exposure",
+           legend.labs=c("Low", "High"),
+           risk.table=T,
+           title="Time to Death or Transplant by PM 5yrs Pre-Censoring",
+           xlab="Time (years)",
+           ylab="Survival Probability (Death or Lung Transplant)",
+           ggtheme = theme_grey()
+           ))
+```
+
+
+Now we want to check the proportionality assumption by plotting the scaled Schoenfield residuals against time for each covariate in our final model.
+```{r}
+residtest <- cox.zph(coxPH_model9)
+residtest
+ggcoxzph(residtest)
+```
+
+
+Now I will present a forest plot with the model
+```{r}
+ggforest(coxPH_model9)
+```
+
+
+
+# Association between PM and Baseline FVC
+## Visual EDA 5yrs pre-Dx
+Scatterplot of continuous PM 5yrs pre-diagnosis vs FVC, with sex represented by the color of points
+```{r}
+(PM %>% ggplot(aes(x=PM_5yrPreDx, y=fvc_pct, color=sex))+
+   geom_point()+
+   labs(x="PM 5yrs Pre-Diagnosis", y="Baseline FVC % Predicted", title="Baseline FVC % Predicted by PM 5yrs Pre-Diagnosis")+
+   geom_smooth(method="lm", se = FALSE) +
+   theme(plot.title = element_text(hjust = 0.5))+
+   xlim(2,16))
+```
+
+
+Violin plot wrapping boxplot to visualize PM 5yrs pre-dx low vs high vs FVC
+```{r}
+PMb <- PM %>% filter(!is.na(PM5yr_dich))
+(PMb %>% ggplot(aes(x=PM5yr_dich, y=fvc_pct, fill=PM5yr_dich))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="PM 5yrs Pre-Diagnosis Low vs High", y="Baseline FVC % Predicted", title="Baseline FVC % Predicted by PM 5yrs Pre-Diagnosis Low vs High")+
+   theme_light()+
+   theme(legend.position = "none", plot.title = element_text(hjust = 0.5))+
+   scale_fill_brewer(type="seq", palette="YlOrRd"))
+```
+
+
+
+## PM 5yrs Pre-Diagnosis and FVC Models
+Looking at continuous PM_5yrPreDx vs baseline FVC
+
+Simplest model just looking at PM in 5yrs pre-diagnosis
+```{r}
+FVC_model1 <- lm(fvc_pct ~ PM_5yrPreDx, data=PM)
+summary(FVC_model1)
+confint(FVC_model1)
+```
+
+
+Partial model
+```{r}
+FVC_model2 <- lm(fvc_pct ~ PM_5yrPreDx + sex + age_dx + smokeHx, data=PM)
+summary(FVC_model2)
+confint(FVC_model2)
+```
+
+
+Complete model
+```{r}
+FVC_model3 <- lm(fvc_pct ~ PM_5yrPreDx + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro, data=PM)
+summary(FVC_model3)
+confint(FVC_model3)
+```
+
+
+### PM 5yrs Pre-Diagnosis Low vs High and Baseline FVC
+Looking at PM5yr_dich vs baseline FVC
+
+Simplest model just looking at PM in 5yrs pre-diagnosis
+```{r}
+FVC_model1 <- lm(fvc_pct ~ PM5yr_dich, data=PM)
+summary(FVC_model1)
+confint(FVC_model1)
+```
+
+
+Partial model
+```{r}
+FVC_model2 <- lm(fvc_pct ~ PM5yr_dich + sex + age_dx + smokeHx, data=PM)
+summary(FVC_model2)
+confint(FVC_model2)
+```
+
+
+Complete model
+```{r}
+FVC_model3 <- lm(fvc_pct ~ PM5yr_dich + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro, data=PM)
+summary(FVC_model3)
+confint(FVC_model3)
+```
+
+
+
+# Association between PM and Baseline DLCO
+## Visual EDA 5yrs pre-Dx
+Scatterplot of continuous PM 5yrs pre-diagnosis vs DLCO, with sex represented by the color of points
+```{r}
+(PM %>% ggplot(aes(x=PM_5yrPreDx, y=dlco_pct, color=sex))+
+   geom_point()+
+   labs(x="PM 5yrs Pre-Diagnosis", y="Baseline dlco % Predicted", title="Baseline dlco % Predicted by PM 5yrs Pre-Diagnosis")+
+   geom_smooth(method="lm", se = FALSE) +
+   theme(plot.title = element_text(hjust = 0.5))+
+   xlim(0,12))
+```
+
+
+Violin plot wrapping boxplot to visualize PM 5yrs pre-dx low vs high vs dlco
+```{r}
+(PMb %>% ggplot(aes(x=PM5yr_dich, y=dlco_pct, fill=PM5yr_dich))+
+   geom_boxplot(width=0.2, color="black", alpha=1.0)+
+   geom_violin(width=1.0, alpha=0.5)+
+   labs(x="PM 5yrs Pre-Diagnosis Low vs High", y="Baseline DLCO % Predicted", title="Baseline DLCO % Predicted by PM 5yrs Pre-Diagnosis Low vs High")+
+   theme_light()+
+   theme(legend.position = "none", plot.title = element_text(hjust = 0.5))+
+   scale_fill_brewer(type="seq", palette="YlOrRd"))
+```
+
+
+
+## PM 5yrs Pre-Diagnosis and DLCO Models
+### PM 5yrs Pre-Diagnosis and Baseline DLCO
+Looking at continuous PM_5yrPreDx vs baseline DLCO
+
+Simplest model just looking at PM in 5yrs pre-diagnosis
+```{r}
+DLCO_model1 <- lm(dlco_pct ~ PM_5yrPreDx, data=PM)
+summary(DLCO_model1)
+confint(DLCO_model1)
+```
+
+
+Partial model
+```{r}
+DLCO_model2 <- lm(dlco_pct ~ PM_5yrPreDx + sex + age_dx + smokeHx, data=PM)
+summary(DLCO_model2)
+confint(DLCO_model2)
+```
+
+
+Complete model
+```{r}
+DLCO_model3 <- lm(dlco_pct ~ PM_5yrPreDx + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro, data=PM)
+summary(DLCO_model3)
+confint(DLCO_model3)
+```
+
+
+
+### PM 5yrs Pre-Diagnosis Low vs High and Baseline DLCO
+Looking at PM5yr_dich vs baseline DLCO
+
+Simplest model just looking at PM in 5yrs pre-diagnosis
+```{r}
+DLCO_model1 <- lm(dlco_pct ~ PM5yr_dich, data=PM)
+summary(DLCO_model1)
+confint(DLCO_model1)
+```
+
+
+Partial model
+```{r}
+DLCO_model2 <- lm(dlco_pct ~ PM5yr_dich + sex + age_dx + smokeHx, data=PM)
+summary(DLCO_model2)
+confint(DLCO_model2)
+```
+
+
+Complete model
+```{r}
+DLCO_model3 <- lm(dlco_pct ~ PM5yr_dich + sex + age_dx + smokeHx + dich_Race + dx_IPF + metro, data=PM)
+summary(DLCO_model3)
+confint(DLCO_model3)
+```
+
