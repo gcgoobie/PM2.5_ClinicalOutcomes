@@ -1,0 +1,388 @@
+---
+title: "Soil and fibrotic ILD Complete Cohort Lung Function Decline Analysis - Updated First Encounter Date"
+author: "Gillian Goobie"
+date: "03/29/2022"
+output: 
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(nnet)
+library(writexl) 
+library(knitr)
+library(lintr)
+library(psych)
+library(RColorBrewer)
+library(reticulate)
+library(survival)
+library(survminer)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+```
+
+
+# Uploading PFT Dataframe
+```{r}
+#Need to import the correct sheet from the original Simmons file
+outfile1 <- here("Simmons_fILDPts_PFTs_2022_03_28.xlsx")
+pft <- read_excel(outfile1, na="")
+```
+
+## Correct formatting for pft dataframe
+```{r}
+pft <- pft %>% mutate_at(vars(pft_date, tx_date, dob, death_date, last_updated, dx_date, UPMC_lastvisit, Simmons_lastvisit, consent_date, first_pft_date), as.Date, format="%m/%d/%Y")
+str(pft)
+```
+
+## Create PFT ID variable
+This will make it easier to identify any cells with issues and replace them if needed
+```{r}
+pft <- pft %>% mutate(pft_id=1:8639)
+```
+
+## Select Necessary PFT Columns
+```{r}
+pft <- pft %>% dplyr::select(ID, pft_date, fvc_pct, dlco_pct)
+str(pft)
+```
+
+# Uploading Soil Dataframe
+Need to upload the file which only includes patients with fibrotic ILD
+```{r}
+outfile2 <- here("Final_Simmons_fILD_Soil_BaselineData_2022_03_29.xlsx")
+Soil <- read_excel(outfile2, na="")
+```
+
+Next we need to ensure that all variables in the ADI dataframe are correctly named and in the right class format.
+
+## Correct ADI variable names
+Need to ensure that the ADI variable names are consistent with the previous code.
+```{r}
+Soil <- Soil %>% rename("state_ADI"="ADI_state", "nat_ADI"="ADI_nat")
+```
+
+## Correct date format
+```{r}
+Soil <- Soil %>% mutate_at(vars(dob, death_date, last_updated, tx_date, dx_date, UPMC_lastvisit, Simmons_lastvisit, pft_date, consent_date, deathORtx_date, DeathTxCensor_date, Soil_date), as.Date, format="%m/%d/%Y")
+str(Soil)
+```
+
+## Correct Factor Variables and Levels
+```{r}
+Soil <- Soil %>% mutate_at(vars(status, sex, race, ethnicity, died, txed, deadORtx, dx_type, dx, smokeHx, dich_Race, dich_smoking, dx_group, dx_IPF, metro, Soil5yrCensor_dich, Soil5yr_dich), as.factor)
+str(Soil)
+```
+
+## Releveling Factors
+Here I am releveling factors so that they are in an intuitive order for my later analyses.
+```{r}
+Soil$sex <- fct_relevel(Soil$sex, c("M","F"))
+Soil$race <- fct_relevel(Soil$race, c("W","B","A","N","U"))
+Soil$ethnicity <- fct_relevel(Soil$ethnicity, c("N","H","D","U"))
+Soil$dich_Race <- fct_relevel(Soil$dich_Race, c("White","Non-White"))
+Soil$smokeHx <- fct_relevel(Soil$smokeHx, c("Never","Former","Always"))
+Soil$Soil5yrCensor_dich <- fct_relevel(Soil$Soil5yrCensor_dich, c("Low", "High"))
+Soil$Soil5yr_dich <- fct_relevel(Soil$Soil5yr_dich, c("Low", "High"))
+
+#For dx and dx_group, I just want IPF to be first and then the rest of the categories are alphabetical
+Soil$dx <- fct_relevel(Soil$dx, c("IPF"))
+Soil$dx_group <- fct_relevel(Soil$dx_group, c("IPF"))
+str(Soil)
+```
+
+# Remove PFTs that occurred after transplant
+Then will make a simpler dataframe that can be joined to pft
+```{r}
+txed <- Soil %>% filter(txed==1) %>% dplyr::select(ID, tx_date)
+```
+We have  patients out of the  who were transplanted
+
+Next will join txed to pft
+```{r}
+str(pft)
+pft$ID <- as.numeric(pft$ID)
+pft <- left_join(pft, txed, by="ID")
+
+#remove all pfts where pft_date>tx_date
+pft <- pft %>% filter(is.na(tx_date) | pft_date<tx_date)
+```
+All post-transplant PFTs already removed, so pft stays at 
+
+# Remove PFT Values that Don't Make Sense
+There are some DLCO values that are too low that we need to remove. All the extremely high DLCOs have been removed that are incorrect and the remaining ones make sense.
+```{r}
+summary(pft$fvc_pct)
+#FVCs look appropriate
+
+summary(pft$dlco_pct)
+#DLCOs look appropriate
+```
+
+# Merge PFT Dataframe with Soil dataframe
+```{r}
+pft <- left_join(pft, Soil, by=c("ID", "tx_date"))
+str(pft)
+pft <- pft %>% rename("pft_date"="pft_date.x", "fvc_pct"="fvc_pct.x", "dlco_pct"="dlco_pct.x", "first_pft_date"="pft_date.y", "first_fev1"="fev1_pre", "first_fev1_pct"="fev1_pct", "first_fvc"="fvc_pre", "first_fvc_pct"="fvc_pct.y", "first_dlco"="dlco_pre", "first_dlco_pct"="dlco_pct.y")
+pft$ID <- as.factor(pft$ID)
+str(pft)
+```
+
+## Remove PFTs that occurred before first_pft_date
+```{r}
+pft <- pft %>% filter(pft_date >= first_pft_date)
+```
+This filtering keeps our pft dataframe at 
+
+## Create Time from First PFT Variable
+```{r}
+pft <- pft %>% mutate(time_firstPFT=(pft_date-first_pft_date)/365.25)
+pft$time_firstPFT <- as.numeric(pft$time_firstPFT)
+summary(pft$time_firstPFT)
+#Now there are no negative time_firstPFTs
+summary(pft$fvc_pct)
+summary(pft$dlco_pct)
+#And the breakdowns of fvc_pct and dlco_pct make sense
+```
+
+## Create Last PFT Date Variable
+```{r, eval=F}
+lastPFT <- pft %>% 
+  group_by(ID) %>% 
+  filter(pft_date == max(pft_date))
+
+head(lastPFT)
+
+#Pare lastPFT down to required columns
+lastPFT <- lastPFT %>% dplyr::select(ID, pft_date, fev1, fev1_pct, fvc, fvc_pct, dlco, dlco_pct)
+
+#Rename columns in lastPFT
+lastPFT <- lastPFT %>% rename(last_pft_date=pft_date, last_fev1=fev1, last_fev1_pct=fev1_pct, last_fvc=fvc, last_fvc_pct=fvc_pct, last_dlco=dlco, last_dlco_pct=dlco_pct)
+head(lastPFT)
+
+#add lastPFT to pft dataframe
+pft <- left_join(pft, lastPFT, by="ID")
+```
+
+
+# Exploratory Data Analysis
+## Visualization of Relationship between Soil and FVC Decline
+```{r}
+(ggplot(pft, aes(x=time_firstPFT, y=fvc_pct, group=ID)) +
+  geom_line(aes(color=dx_group, alpha=0.01))+
+   xlim(0,10))
+```
+
+
+Now the 5yrs pre-censoring low vs high
+```{r}
+#First I need to make a new dataframe that removes the Soildx_quart NAs so they don't show up in the plot
+pft1 <- pft %>% filter(!is.na(Soil5yrCensor_dich))
+
+#Then I can plot it   
+(ggplot(pft1, aes(x=time_firstPFT, y=fvc_pct, group=ID)) +
+   geom_line(aes(color=Soil5yrCensor_dich), alpha=0.6)+
+   xlim(0,5)+
+   stat_smooth(aes(group=1))+
+   facet_grid(. ~Soil5yrCensor_dich)+
+   labs(x="Time from First PFT (years)", y="Change in FVC % Predicted", title="Change in FVC % Predicted by Low vs High Soil 5yrs Pre-Censoring", color="Soil 5yrs \nPre-Censoring")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_brewer(type="seq", palette="YlOrRd"))
+```
+
+
+## Visualization of Relationship between Soil and DLCO Decline
+```{r}
+(ggplot(pft, aes(x=time_firstPFT, y=dlco_pct, group=ID)) +
+  geom_line(aes(color=dx_group, alpha=0.01))+
+   xlim(0,10))
+```
+
+Now the 5yrs pre-censoring low vs high
+```{r}
+#First I need to make a new dataframe that removes the Soildx_quart NAs so they don't show up in the plot
+pft1 <- pft %>% filter(!is.na(Soil5yrCensor_dich))
+
+#Then I can plot it   
+(ggplot(pft1, aes(x=time_firstPFT, y=dlco_pct, group=ID)) +
+   geom_line(aes(color=Soil5yrCensor_dich), alpha=0.6)+
+   xlim(0,5)+
+   stat_smooth(aes(group=1))+
+   facet_grid(. ~Soil5yrCensor_dich)+
+   labs(x="Time from First PFT (years)", y="Change in DLCO % Predicted", title="Change in DLCO % Predicted by Low vs High Soil 5yrs Pre-Censoring", color="Soil 5yrs \nPre-Censoring")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_brewer(type="seq", palette="YlOrRd"))
+```
+
+
+## Descriptive Stats for FVC Decline
+```{r}
+#Look at the mean and total variance of fvc_pct
+pft %>% summarise(mean_fvc=mean(fvc_pct, na.rm=T))
+tot_var_fvc <- pft %>% dplyr::select(fvc_pct) %>% summarise(var_fvc_pct=var(fvc_pct, na.rm=T))
+tot_var_fvc
+
+#Look at the between subject variance
+bw_subj_var_fvc <- pft %>% group_by(ID) %>% mutate(mean_fvc_pct=mean(fvc_pct)) %>% ungroup() %>% summarise(bw_subj_var_fvc=var(mean_fvc_pct, na.rm=T))
+bw_subj_var_fvc
+
+fvc_ICC <- bw_subj_var_fvc/tot_var_fvc
+fvc_ICC
+```
+fvc_ICC=0.86 indicates that ~86% of the variance is between subject variance. I.e. there is more difference in fvc_pct between patients than within any single patient.
+
+## Number of PFTs
+```{r}
+n_pfts <- pft %>% count(ID)
+n_pfts
+summary(n_pfts$n)
+#This shows that the median # of PFTs is 4 and the mean is 6
+```
+Median number of PFTs 4 and mean is 6
+
+# Association between Soil 5yrs Pre-Censoring and FVC Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of Soil During Disease on FVC decline.
+
+## Continuous Soil 5yrs Pre-Censoring and FVC Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Partial Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer3 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*nat_ADI + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer3)
+icc(FVC_lmer3)
+report(FVC_lmer3)
+```
+
+
+## Dichotomized Soil 5yrs Pre-Censoring and FVC Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+FVC_lmer4 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil5yrCensor_dich + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer4)
+icc(FVC_lmer4)
+report(FVC_lmer4)
+```
+
+
+### Partial Model
+```{r}
+FVC_lmer5 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil5yrCensor_dich + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer5)
+icc(FVC_lmer5)
+report(FVC_lmer5)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer6 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil5yrCensor_dich + time_firstPFT*nat_ADI + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer6)
+icc(FVC_lmer6)
+report(FVC_lmer6)
+```
+
+
+
+# Association between Soil 5yrs Pre-Censoring and dlco Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of Soil During Disease on dlco decline.
+
+## Continuous Soil 5yrs Pre-Censoring and dlco Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+dlco_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + (1 + time_firstPFT| ID), data=pft)
+summary(dlco_lmer1)
+icc(dlco_lmer1)
+report(dlco_lmer1)
+```
+
+
+
+### Partial Model
+```{r}
+dlco_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer2)
+icc(dlco_lmer2)
+report(dlco_lmer2)
+```
+
+
+
+### Complete Model
+```{r}
+dlco_lmer3 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*nat_ADI + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer3)
+icc(dlco_lmer3)
+report(dlco_lmer3)
+```
+
+
+
+## Dichotomized Soil 5yrs Pre-Censoring and DLCO Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+DLCO_lmer4 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil5yrCensor_dich + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer4)
+icc(DLCO_lmer4)
+report(DLCO_lmer4)
+```
+
+
+
+### Partial Model
+```{r}
+dlco_lmer5 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil5yrCensor_dich + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer5)
+icc(dlco_lmer5)
+report(dlco_lmer5)
+```
+
+
+
+### Complete Model
+```{r}
+dlco_lmer6 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil5yrCensor_dich + time_firstPFT*nat_ADI + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer6)
+icc(dlco_lmer6)
+report(dlco_lmer6)
+```
+
+
+

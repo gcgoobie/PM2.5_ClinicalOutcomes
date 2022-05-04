@@ -1,0 +1,393 @@
+---
+title: "NH4 and CARE-PF fILD Complete Cohort Lung Function Decline Analysis - Updated Dichotomized NH4"
+author: "Gillian Goobie"
+date: "02/12/2022"
+output: 
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(nnet)
+library(writexl)
+library(knitr)
+library(lintr)
+library(psych)
+library(RColorBrewer)
+library(reticulate)
+library(survival)
+library(survminer)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+```
+
+
+# Uploading PFT Dataframe
+```{r}
+#Need to import the correct sheet from the original Simmons file
+outfile1 <- here("CAREPF_AllPts_PFTs_2021_06_01.xlsx")
+pft <- read_excel(outfile1, na="")
+```
+
+## Correct formatting for pft dataframe
+```{r}
+pft <- pft %>% mutate_at(vars(pft_date, tx_date, dx_date), as.Date, format="%m/%d/%Y")
+str(pft)
+```
+
+## dplyr::select Necessary PFT Columns
+```{r}
+pft <- pft %>% dplyr::select(ID, pft_date, pft_id, fvc, fvc_pct, fev1, fev1_pct, dlco, dlco_pct)
+str(pft)
+```
+
+# Uploading NH4 Dataframe
+Need to upload the file which only includes patients with fibrotic ILD
+```{r}
+outfile2 <- here("Final_CAREPF_fILD_NH4_BaselineData_2022_02_12.xlsx")
+NH4 <- read_excel(outfile2, na="")
+```
+Next we need to ensure that all variables in the NH4 dataframe are correctly named and in the right class format.
+
+## Correct date format
+```{r}
+NH4 <- NH4 %>% mutate_at(vars(dob, dx_date, initial_visit_date, formal_dx_date, reg_update, death_date, tx_date, pft_date, last_updated, deathORtx_date, DeathTxCensor_date, NH4_date), as.Date, format="%m/%d/%Y")
+str(NH4)
+```
+
+## dplyr::select columns that we need
+```{r}
+NH4 <- NH4 %>% dplyr::select(ID, age_dx, sex, smokeHx, race, dich_Race, site, avg_s, dx_IPF, metro, province, status, txed, dx, dx_group, fvc_pct, dlco_pct, pft_timefromdx, NH4_5yrPreCensor, NH45yrCensor_dich, dx_date, death_date, tx_date, DeathTxCensor_date, pft_date)
+```
+
+
+## Correct Factor Variables and Levels
+```{r}
+NH4 <- NH4 %>% mutate_at(vars(status, sex, txed, dx, smokeHx, race, dich_Race, dx_group, dx_IPF, metro, province, site, NH45yrCensor_dich), as.factor)
+str(NH4)
+```
+
+## Releveling Factors
+Here I am releveling factors so that they are in an intuitive order for my later analyses.
+```{r}
+NH4$sex <- fct_relevel(NH4$sex, c("M","F"))
+NH4$race <- fct_relevel(NH4$race, c("W","B","A","N", "P", "U"))
+NH4$dich_Race <- fct_relevel(NH4$dich_Race, c("White","Non-White"))
+NH4$smokeHx <- fct_relevel(NH4$smokeHx, c("Never","Former","Always"))
+
+#For dx and dx_group, I just want IPF to be first and then the rest of the categories are alphabetical
+NH4$dx <- fct_relevel(NH4$dx, c("IPF"))
+NH4$dx_group <- fct_relevel(NH4$dx_group, c("IPF"))
+NH4$NH45yrCensor_dich <- fct_relevel(NH4$NH45yrCensor_dich, c("Low"))
+str(NH4)
+```
+
+## Remove PFTs that occurred after transplant
+Then will make a simpler dataframe that can be joined to pft
+```{r}
+txed <- NH4 %>% filter(txed==1) %>% dplyr::select(ID, tx_date)
+```
+We have 176 patients out of the 3389 who were transplanted
+
+Next will join txed to pft
+```{r}
+pft <- left_join(pft, txed, by="ID")
+
+#remove all pfts where pft_date>tx_date
+pft <- pft %>% filter(is.na(tx_date) | pft_date<tx_date)
+```
+Our PFT dataframe does not change because this filter already happened in the file creation.
+
+# Remove PFT Values that Don't Make Sense
+There are some DLCO values that are too low that we need to remove. All the extremely high DLCOs have been removed that are incorrect and the remaining ones make sense.
+```{r}
+summary(pft$fvc_pct)
+#The one fvc_pct of 4 is an error and should be 44
+pft[pft$pft_id==28700,5] <- 44
+
+summary(pft$dlco_pct)
+#DLCOs of 0 are impossible so will restrict to no DLCOs <5, but there are no DLCOs <5 in this dataset
+
+pft <- pft %>% filter(dlco_pct>=5 | is.na(dlco_pct))
+summary(pft$dlco_pct)
+```
+
+## Merge PFT Dataframe with NH4 dataframe
+```{r}
+pft <- left_join(pft, NH4, by=c("ID", "tx_date"))
+
+pft <- pft %>% rename("pft_date"="pft_date.x", "fvc_pct"="fvc_pct.x", "dlco_pct"="dlco_pct.x", "first_pft_date"="pft_date.y",  "first_fvc_pct"="fvc_pct.y", "first_dlco_pct"="dlco_pct.y")
+str(pft)
+```
+
+## Remove NH4=NA rows from pft dataframe
+Now I need to get rid of the rows where NH4 is NA. Looking at the original excel spreadsheet, there are a bunch of patients with longitudinal PFT data who I don't have the rest of the details on, and this is because they are patients who do not have a diagnosis of fILD. Most of them have diagnoses of sarcoidosis.
+```{r}
+pft <- pft %>% filter(!is.na(NH4_5yrPreCensor))
+```
+This filtering results in our pft dataframe going from  to  observations.
+
+## Remove PFTs that occurred before first_pft_date
+```{r}
+pft <- pft %>% filter(pft_date >= first_pft_date)
+```
+This filtering results in our pft dataframe going from  to  observations.
+
+## Create Time from First PFT Variable
+```{r}
+pft <- pft %>% mutate(time_firstPFT=(pft_date-first_pft_date)/365.25)
+pft$time_firstPFT <- as.numeric(pft$time_firstPFT)
+summary(pft$time_firstPFT)
+#Now there are no negative time_firstPFTs
+```
+
+## Create Last PFT Date Variable
+```{r}
+lastPFT <- pft %>% 
+  group_by(ID) %>% 
+  filter(pft_date == max(pft_date))
+
+head(lastPFT)
+
+#Pare lastPFT down to required columns
+lastPFT <- lastPFT %>% dplyr::select(ID, pft_date, fev1, fev1_pct, fvc, fvc_pct, dlco, dlco_pct)
+
+#Rename columns in lastPFT
+lastPFT <- lastPFT %>% rename(last_pft_date=pft_date, last_fev1=fev1, last_fev1_pct=fev1_pct, last_fvc=fvc, last_fvc_pct=fvc_pct, last_dlco=dlco, last_dlco_pct=dlco_pct)
+head(lastPFT)
+
+#add lastPFT to pft dataframe
+pft <- left_join(pft, lastPFT, by="ID")
+```
+
+
+## Create dataframe that excludes patients which only had one PFT
+```{r}
+# Determine how many PFTs each patient has
+PFT_number <- pft %>% count(ID)
+summary(PFT_number)
+# minimum number of PFTs is 1, so we do have some patients that only had one PFT that are included in later analyses
+
+# restrict dataframe to only include patients with one PFT
+one_pft <- PFT_number %>% filter(n==1)
+# patients only had one PFT, so we need to ensure the analyses below remain consistent when we remove patients that only have one PFT
+
+# remove patients with only one PFT
+pft_over1 <- pft[!pft$ID %in% one_pft$ID,]
+#Now my pft_over1 dataframe drops from  rows to  rows, which is a loss of  individuals who only had 1 pft
+
+#Recheck using same methods as above
+PFT_number <- pft_over1 %>% count(ID)
+summary(PFT_number)
+#And we can see that the minimum is now 2
+```
+
+## Make IPF-Specific Dataframes
+```{r}
+IPF <- pft %>% filter(dx_group=="IPF")
+```
+
+
+# Exploratory Data Analysis
+## Visualization of Relationship between NH4 and FVC Decline
+Now the 5yrs pre-censoring low vs high
+```{r}
+#First I need to make a new dataframe that removes the NH4dx_quart NAs so they don't show up in the plot
+pft1 <- pft %>% filter(!is.na(NH45yrCensor_dich))
+
+#Then I can plot it   
+(ggplot(pft1, aes(x=time_firstPFT, y=fvc_pct, group=ID)) +
+   geom_line(aes(color=NH45yrCensor_dich), alpha=0.6)+
+   xlim(0,5)+
+   stat_smooth(aes(group=1))+
+   facet_grid(. ~NH45yrCensor_dich)+
+   labs(x="Time from First PFT (years)", y="Change in FVC % Predicted", title="Change in FVC % Predicted by Low vs High NH4 5yrs Pre-Censoring", color="NH4 5yrs \nPre-Censoring")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_brewer(type="seq", palette="YlOrRd"))
+```
+
+
+## Visualization of Relationship between NH4 and DLCO Decline
+Now the 5yrs pre-censoring low vs high
+```{r}
+#First I need to make a new dataframe that removes the NH4dx_quart NAs so they don't show up in the plot
+pft1 <- pft %>% filter(!is.na(NH45yrCensor_dich))
+
+#Then I can plot it   
+(ggplot(pft1, aes(x=time_firstPFT, y=dlco_pct, group=ID)) +
+   geom_line(aes(color=NH45yrCensor_dich), alpha=0.6)+
+   xlim(0,5)+
+   stat_smooth(aes(group=1))+
+   facet_grid(. ~NH45yrCensor_dich)+
+   labs(x="Time from First PFT (years)", y="Change in DLCO % Predicted", title="Change in DLCO % Predicted by Low vs High NH4 5yrs Pre-Censoring", color="NH4 5yrs \nPre-Censoring")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_brewer(type="seq", palette="YlOrRd"))
+```
+
+
+## Descriptive Stats for FVC Decline
+```{r}
+#Look at the mean and total variance of fvc_pct
+pft %>% summarise(mean_fvc=mean(fvc_pct, na.rm=T))
+tot_var_fvc <- pft %>% dplyr::select(fvc_pct) %>% summarise(var_fvc_pct=var(fvc_pct, na.rm=T))
+tot_var_fvc
+
+#Look at the between subject variance
+bw_subj_var_fvc <- pft %>% group_by(ID) %>% mutate(mean_fvc_pct=mean(fvc_pct)) %>% ungroup() %>% summarise(bw_subj_var_fvc=var(mean_fvc_pct, na.rm=T))
+bw_subj_var_fvc
+
+fvc_ICC <- bw_subj_var_fvc/tot_var_fvc
+fvc_ICC
+```
+fvc_ICC=0.88 indicates that ~88% of the variance is between subject variance. I.e. there is more difference in fvc_pct between patients than within any single patient.
+
+## Number of PFTs
+```{r}
+n_pfts <- pft %>% count(ID)
+n_pfts
+summary(n_pfts$n)
+#This shows that the median # of PFTs is 5 and the mean is 6
+```
+Median 5 PFTs per person, mean 7
+
+
+# Association between NH4 5yrs Pre-Censoring and FVC Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of NH4 During Disease on FVC decline.
+
+## Continuous NH4 5yrs Pre-Censoring and FVC Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Partial Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer3 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*dich_Race + time_firstPFT*sex + NH4_5yrPreCensor*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*avg_s + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer3)
+icc(FVC_lmer3)
+report(FVC_lmer3)
+```
+
+
+
+## Dichotomized NH4 5yrs Pre-Censoring and FVC Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+FVC_lmer4 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH45yrCensor_dich + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer4)
+icc(FVC_lmer4)
+report(FVC_lmer4)
+```
+
+
+### Partial Model
+```{r}
+FVC_lmer5 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH45yrCensor_dich + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer5)
+icc(FVC_lmer5)
+report(FVC_lmer5)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer6 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH45yrCensor_dich + time_firstPFT*dich_Race + time_firstPFT*sex + NH4_5yrPreCensor*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*avg_s + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer6)
+icc(FVC_lmer6)
+report(FVC_lmer6)
+```
+
+
+
+# Association between NH4 5yrs Pre-Censoring and dlco Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of NH4 During Disease on dlco decline.
+
+## Continuous NH4 5yrs Pre-Censoring and dlco Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+dlco_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + (1 + time_firstPFT| ID), data=pft)
+summary(dlco_lmer1)
+icc(dlco_lmer1)
+report(dlco_lmer1)
+```
+
+### Partial Model
+```{r}
+dlco_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer2)
+icc(dlco_lmer2)
+report(dlco_lmer2)
+```
+
+
+### Complete Model
+```{r}
+dlco_lmer3 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*avg_s + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer3)
+icc(dlco_lmer3)
+report(dlco_lmer3)
+```
+
+
+
+## Dichotomized NH4 5yrs Pre-Censoring and DLCO Models with Random Intercept and Random Slope
+### Base Model
+```{r}
+DLCO_lmer4 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH45yrCensor_dich + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer4)
+icc(DLCO_lmer4)
+report(DLCO_lmer4)
+```
+
+
+### Partial Model
+```{r}
+dlco_lmer5 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH45yrCensor_dich + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer5)
+icc(dlco_lmer5)
+report(dlco_lmer5)
+```
+
+
+### Complete Model
+```{r}
+dlco_lmer6 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH45yrCensor_dich + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*avg_s + time_firstPFT*dx_IPF + time_firstPFT*metro + (1 + time_firstPFT | ID), data=pft)
+summary(dlco_lmer6)
+icc(dlco_lmer6)
+report(dlco_lmer6)
+```
+
