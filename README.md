@@ -40,5 +40,8 @@ The files contained in this repository include:
               CARE-PF - 8 .Rmd files
     4. Combined analysis files for figure creation:
         a. File summary:
-              One .Rmd file
+              Files combined between the three cohorts - 9 .Rmd files
+
+
+Preprint of manuscript is available at: <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4094833>
 
