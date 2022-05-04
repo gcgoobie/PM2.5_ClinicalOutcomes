@@ -1,0 +1,1 @@
+In this folder, the files for the analyses evaluating the association of PM2.5 and its constituents with the rate of decline in lung function (forced vital capacity/FVC and diffusion capacity of the lung for carbon monoxide/DLCO) are attached.
