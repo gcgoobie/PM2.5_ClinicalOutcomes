@@ -1,0 +1,2055 @@
+---
+title: "Meta-Analyses of Effect Estimates Between Cohorts"
+author: "Gillian Goobie"
+date: "07/28/2022"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+library(raster)
+library(forestplot)
+library(qgcomp)
+library(meta)
+```
+
+
+# Upload Meta-Data File
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+CoxPH <- read_excel(outfile1, sheet="CoxPHModels")
+```
+
+
+# Meta-Analysis of Cox PH Results
+## Total PM2.5
+### Continuous
+```{r}
+PM_surv_continuous <- CoxPH %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_surv_dich <- CoxPH %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_surv_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_surv_continuous <- CoxPH %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_surv_dich <- CoxPH %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_surv_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_surv_continuous <- CoxPH %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_surv_dich <- CoxPH %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_surv_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_surv_continuous <- CoxPH %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_surv_dich <- CoxPH %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_surv_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_surv_continuous <- CoxPH %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_surv_dich <- CoxPH %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_surv_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_surv_continuous <- CoxPH %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_surv_dich <- CoxPH %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_surv_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_surv_continuous <- CoxPH %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_surv_dich <- CoxPH %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_surv_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_surv_continuous <- CoxPH %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_surv_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_surv_dich <- CoxPH %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_surv_meta_dich <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_surv_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_surv_meta_dich)
+```
+
+
+
+## Multi-Constituent
+### Continuous
+```{r}
+Multi_surv_continuous <- CoxPH %>% filter(pollutant=="Multi-Constituent" & model=="adjusted" & method=="continuous")
+Multi_surv_meta_continuous <- metagen(TE=coef,
+                   seTE=se,
+                   sm="HR",
+                   n.e=n,
+                   studlab=cohort,
+                   data=Multi_surv_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Multi-Constituent Continuous Models")
+summary(Multi_surv_meta_continuous)
+```
+
+
+# Clear Dataframes
+Remove all dataframes
+```{r}
+rm(list=ls())
+```
+
+
+
+# Meta-Analysis of Baseline FVC Results
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+BaseFVC <- read_excel(outfile1, sheet="BaselineFVCModels_5yrPreDx")
+```
+
+
+## Total PM2.5
+### Continuous
+```{r}
+PM_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_baseFVC_dich <- BaseFVC %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_baseFVC_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_baseFVC_dich <- BaseFVC %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_baseFVC_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_baseFVC_dich <- BaseFVC %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_baseFVC_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_baseFVC_dich <- BaseFVC %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_baseFVC_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_baseFVC_dich <- BaseFVC %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_baseFVC_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_baseFVC_dich <- BaseFVC %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_baseFVC_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_baseFVC_dich <- BaseFVC %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_baseFVC_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_baseFVC_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_baseFVC_dich <- BaseFVC %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_baseFVC_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_baseFVC_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_baseFVC_meta_dich)
+```
+
+
+
+## Multi-Constituent
+### Continuous
+```{r}
+Multi_baseFVC_continuous <- BaseFVC %>% filter(pollutant=="Multi-Constituent" & model=="adjusted" & method=="continuous")
+Multi_baseFVC_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Multi_baseFVC_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Multi-Constituent Continuous Models")
+summary(Multi_baseFVC_meta_continuous)
+```
+
+
+
+# Clear Dataframes
+Remove all dataframes
+```{r}
+rm(list=ls())
+```
+
+
+
+# Meta-Analysis of Baseline DLCO Results
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+BaseDLCO <- read_excel(outfile1, sheet="BaselineDLCOModels_5yrPreDx")
+```
+
+
+## Total PM2.5
+### Continuous
+```{r}
+PM_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_baseDLCO_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_baseDLCO_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_baseDLCO_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_baseDLCO_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_baseDLCO_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_baseDLCO_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_baseDLCO_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_baseDLCO_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_baseDLCO_dich <- BaseDLCO %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_baseDLCO_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_baseDLCO_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_baseDLCO_meta_dich)
+```
+
+
+
+## Multi-Constituent
+### Continuous
+```{r}
+Multi_baseDLCO_continuous <- BaseDLCO %>% filter(pollutant=="Multi-Constituent" & model=="adjusted" & method=="continuous")
+Multi_baseDLCO_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Multi_baseDLCO_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Multi-Constituent Continuous Models")
+summary(Multi_baseDLCO_meta_continuous)
+```
+
+
+
+
+
+# Clear Dataframes
+Remove all dataframes
+```{r}
+rm(list=ls())
+```
+
+
+
+# Meta-Analysis of 5-yr Pre-Diagnosis FVC Decline Results
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+FVCdecline <- read_excel(outfile1, sheet="FVCDeclineModels_5yrPreDx")
+```
+
+
+## Total PM2.5
+### Continuous
+```{r}
+PM_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_FVCdecline_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_FVCdecline_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_FVCdecline_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_FVCdecline_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_FVCdecline_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_FVCdecline_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_FVCdecline_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_FVCdecline_meta_dich)
+```
+
+
+
+
+
+# Clear Dataframes
+Remove all dataframes
+```{r}
+rm(list=ls())
+```
+
+
+
+# Meta-Analysis of 5-yr Pre-Censoring FVC Decline Results
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+FVCdecline <- read_excel(outfile1, sheet="FVCDeclineModels_5yrPreCensor")
+```
+
+
+## Total PM2.5
+### Continuous
+```{r}
+PM_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_FVCdecline_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_FVCdecline_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_FVCdecline_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_FVCdecline_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_FVCdecline_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_FVCdecline_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_FVCdecline_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_FVCdecline_continuous <- FVCdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_FVCdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_FVCdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_FVCdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_FVCdecline_dich <- FVCdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_FVCdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_FVCdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_FVCdecline_meta_dich)
+```
+
+
+
+
+# Clear Dataframes
+Remove all dataframes
+```{r}
+rm(list=ls())
+```
+
+
+
+# Meta-Analysis of 5-yr Pre-Diagnosis DLCO Decline Results
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+DLCOdecline <- read_excel(outfile1, sheet="DLCODeclineModels_5yrPreDx")
+```
+
+
+## Total PM2.5
+### Continuous
+```{r}
+PM_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_DLCOdecline_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_DLCOdecline_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_DLCOdecline_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_DLCOdecline_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_DLCOdecline_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_DLCOdecline_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_DLCOdecline_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_DLCOdecline_meta_dich)
+```
+
+
+
+
+
+# Clear Dataframes
+Remove all dataframes
+```{r}
+rm(list=ls())
+```
+
+
+
+# Meta-Analysis of 5-yr Pre-Censoring DLCO Decline Results
+```{r}
+outfile1 <- here("EffectEstimates_ForMetaAnalysis_2022_07_29.xlsx")
+DLCOdecline <- read_excel(outfile1, sheet="DLCODeclineModels_5yrPreCensor")
+```
+
+
+## Total PM2.5
+### Continuous
+```{r}
+PM_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="continuous")
+PM_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Continuous Models")
+summary(PM_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+PM_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="PM2.5" & model=="adjusted" & method=="dichotomized")
+PM_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=PM_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of PM2.5 Dichotomized Models")
+summary(PM_DLCOdecline_meta_dich)
+```
+
+
+## SO4
+### Continuous
+```{r}
+SO4_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="continuous")
+SO4_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Continuous Models")
+summary(SO4_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SO4_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="SO4" & model=="adjusted" & method=="dichotomized")
+SO4_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SO4_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SO4 Dichotomized Models")
+summary(SO4_DLCOdecline_meta_dich)
+```
+
+
+## NO3
+### Continuous
+```{r}
+NO3_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="continuous")
+NO3_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Continuous Models")
+summary(NO3_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NO3_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="NO3" & model=="adjusted" & method=="dichotomized")
+NO3_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NO3_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NO3 Dichotomized Models")
+summary(NO3_DLCOdecline_meta_dich)
+```
+
+
+## NH4
+### Continuous
+```{r}
+NH4_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="continuous")
+NH4_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Continuous Models")
+summary(NH4_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+NH4_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="NH4" & model=="adjusted" & method=="dichotomized")
+NH4_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=NH4_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of NH4 Dichotomized Models")
+summary(NH4_DLCOdecline_meta_dich)
+```
+
+
+## BC
+### Continuous
+```{r}
+BC_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="continuous")
+BC_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Continuous Models")
+summary(BC_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+BC_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="BC" & model=="adjusted" & method=="dichotomized")
+BC_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=BC_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of BC Dichotomized Models")
+summary(BC_DLCOdecline_meta_dich)
+```
+
+
+
+## OM
+### Continuous
+```{r}
+OM_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="continuous")
+OM_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Continuous Models")
+summary(OM_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+OM_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="OM" & model=="adjusted" & method=="dichotomized")
+OM_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=OM_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of OM Dichotomized Models")
+summary(OM_DLCOdecline_meta_dich)
+```
+
+
+
+## SS
+### Continuous
+```{r}
+SS_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="continuous")
+SS_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Continuous Models")
+summary(SS_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+SS_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="SS" & model=="adjusted" & method=="dichotomized")
+SS_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=SS_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of SS Dichotomized Models")
+summary(SS_DLCOdecline_meta_dich)
+```
+
+
+
+## Soil
+### Continuous
+```{r}
+Soil_DLCOdecline_continuous <- DLCOdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="continuous")
+Soil_DLCOdecline_meta_continuous <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_DLCOdecline_continuous,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Continuous Models")
+summary(Soil_DLCOdecline_meta_continuous)
+```
+
+### Dichotomized
+```{r}
+Soil_DLCOdecline_dich <- DLCOdecline %>% filter(pollutant=="Soil" & model=="adjusted" & method=="dichotomized")
+Soil_DLCOdecline_meta_dich <- metagen(TE=betacoef,
+                   seTE=se,
+                   n.e=n,
+                   studlab=cohort,
+                   data=Soil_DLCOdecline_dich,
+                   fixed=F,
+                   random=T,
+                   method.tau="REML",
+                   title="Meta-Analysis of Soil Dichotomized Models")
+summary(Soil_DLCOdecline_meta_dich)
+```
+
+
+
+
