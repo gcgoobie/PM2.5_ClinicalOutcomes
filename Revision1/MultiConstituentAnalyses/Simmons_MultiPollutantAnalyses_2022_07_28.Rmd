@@ -1,0 +1,1152 @@
+---
+title: "Simmons Multi-Pollutant Analyses"
+author: "Gillian Goobie"
+date: "07/28/2022"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+library(raster)
+library(forestplot)
+library(qgcomp)
+```
+
+
+# Importing Datasets
+Here I am importing the file which contains monthly PM level estimates by satellite at nearest lon/lat to Simmons patient residential addresses. These are linked to the patient ID.
+```{r}
+outfile1 <- here("Simmons_fILD_2000_2018_PM25_2021_09_08.xlsx")
+PM <- read_excel(outfile1)
+```
+
+Here I am importing the file which I used for my ADI work that contains the baseline clinical and demographic data for 1425 patients who have ADI
+```{r}
+outfile2 <- here("Simmons_fILDPts_BaselineData_2022_03_28.xlsx")
+Simm <- read_excel(outfile2)
+```
+
+# Merging Datasets
+I used a inner_join here so that the complete "PM" dataframe only includes patients with fILD that have all baseline demographics and ADI available as well as PM data.
+```{r}
+PM <- inner_join(Simm, PM, by="ID")
+```
+
+
+# Creating New Variables
+## IPF vs Other Diagnosis
+```{r}
+PM <- PM %>% 
+  mutate(dx_IPF=ifelse(dx=="IPF", "IPF", "not_IPF"))    
+```
+
+## Diagnosis and Censor Dates
+```{r}
+#Start with the year of diagnosis
+PM <- PM %>% 
+  mutate(dx_yrmo = format(as.Date(PM$dx_date, format="%Y-%m-%d"),"%Y-%m"))
+PM <- PM %>% 
+  mutate(dx_yr = format(as.Date(PM$dx_date, format="%Y-%m-%d"),"%Y"))
+PM$dx_yr <- as.numeric(PM$dx_yr)
+
+#Then the year of death or lung transplant
+PM <- PM %>% 
+  mutate(deathORtx_date = if_else(!is.na(tx_date), tx_date, death_date))
+PM <- PM %>% 
+  mutate(deathORtx_yrmo = format(as.Date(PM$deathORtx_date, format="%Y-%m-%d"),"%Y-%m"))
+
+#Then the year the records were last updated (i.e. year of censoring)
+PM <- PM %>% 
+  mutate(DeathTxCensor_date = if_else(!is.na(deathORtx_date), deathORtx_date, last_updated))
+PM <- PM %>% 
+  mutate(censor_yrmo = format(as.Date(PM$DeathTxCensor_date, format="%Y-%m-%d"),"%Y-%m"))
+```
+
+## Creating "unknown" category for smoking history
+```{r}
+PM$smokeHx <- as.character(PM$smokeHx) 
+PM <- PM %>% mutate(smokeHx1=if_else(is.na(smokeHx), "Unknown", smokeHx))
+
+#now need to make new dich_smoking category
+PM$dich_smoking <- as.character(PM$dich_smoking) 
+PM <- PM %>% mutate(dich_smoking1=if_else(is.na(dich_smoking),"Unknown", dich_smoking))
+```
+
+# Releveling Factors
+Here I am releveling factors so that they are in an intuitive order for my later analyses.
+```{r}
+PM$sex <- fct_relevel(PM$sex, c("M","F"))
+PM$race <- fct_relevel(PM$race, c("W","B","A","N","U"))
+PM$ethnicity <- fct_relevel(PM$ethnicity, c("N","H","D","U"))
+PM$dich_Race <- fct_relevel(PM$dich_Race, c("White","Non-White"))
+PM$smokeHx <- fct_relevel(PM$smokeHx, c("Never","Former","Always"))
+
+#For dx and dx_group, I just want IPF to be first and then the rest of the categories are alphabetical
+PM$dx <- fct_relevel(PM$dx, c("IPF"))
+PM$dx_group <- fct_relevel(PM$dx_group, c("IPF"))
+PM$dx_IPF <- fct_relevel(PM$dx_IPF, c("IPF"))
+str(PM)
+```
+
+# Reorder columns
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, dx_IPF, dx_yr, everything(.))
+```
+
+# Remove Dataframes not in use
+```{r}
+rm(list=c("Simm"))
+```
+
+## Pivoting to Long Format
+First we need to convert the PM dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(51:277), names_to="PM_date", names_prefix="PM25_")
+```
+
+## Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$PM_date <- gsub("jan", "01-01-20", PMx$PM_date)
+PMx$PM_date <- gsub("feb", "01-02-20", PMx$PM_date)
+PMx$PM_date <- gsub("mar", "01-03-20", PMx$PM_date)
+PMx$PM_date <- gsub("apr", "01-04-20", PMx$PM_date)
+PMx$PM_date <- gsub("may", "01-05-20", PMx$PM_date)
+PMx$PM_date <- gsub("jun", "01-06-20", PMx$PM_date)
+PMx$PM_date <- gsub("jul", "01-07-20", PMx$PM_date)
+PMx$PM_date <- gsub("aug", "01-08-20", PMx$PM_date)
+PMx$PM_date <- gsub("sep", "01-09-20", PMx$PM_date)
+PMx$PM_date <- gsub("oct", "01-10-20", PMx$PM_date)
+PMx$PM_date <- gsub("nov", "01-11-20", PMx$PM_date)
+PMx$PM_date <- gsub("dec", "01-12-20", PMx$PM_date)
+
+PMx$PM_date <- format(as.Date(PMx$PM_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$PM_date <- as.Date(PMx$PM_date)
+PM <- PMx
+```
+
+
+## Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("dx_date", "consent_date", "death_date", "tx_date", "pft_date", "deathORtx_date", "DeathTxCensor_date", "PM_date"), as.Date)
+str(PM)
+```
+
+## Remove unnecessary columns
+```{r}
+PM <- PM %>% dplyr::select(!c("nrow", "dist", "lat.x", "lon.x", "lon.y", "lat.y"))
+```
+
+
+## Creating PM2.5 Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average PM value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(PM_5yrPreDx = mean(value[ymd(PM_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(PM_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average PM value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(PM_5yrPreCensor = mean(value[ymd(PM_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(PM_date)<=ymd(DeathTxCensor_date)]))
+```
+
+
+### Remove Dataframes not in use
+```{r}
+rm(list=c("PMx"))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific PM exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+### Get rid of non-specific "value" column
+```{r}
+PM <- PM %>% dplyr::select(!value)
+```
+
+
+# Add PM2.5 Constituent Files
+## SO4 add Original SO4 Matching Files with All Months
+```{r}
+outfile4 <- here("Simmons_fILD_2000_2017_SO4_2021_11_07.xlsx")
+SO4 <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(SO4, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the SO4 dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="SO4_date", names_prefix="SO4_", names_repair = "minimal")
+```
+
+### Convert date SO4_date to same format as above
+```{r}
+PMx <- PM 
+PMx$SO4_date <- gsub("jan", "01-01-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("feb", "01-02-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("mar", "01-03-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("apr", "01-04-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("may", "01-05-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("jun", "01-06-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("jul", "01-07-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("aug", "01-08-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("sep", "01-09-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("oct", "01-10-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("nov", "01-11-20", PMx$SO4_date)
+PMx$SO4_date <- gsub("dec", "01-12-20", PMx$SO4_date)
+
+PMx$SO4_date <- format(as.Date(PMx$SO4_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$SO4_date <- as.Date(PMx$SO4_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("SO4_date"), as.Date)
+str(PM)
+```
+
+## Creating SO4 Exposure Variables
+Now I'm creating new variables where I am matching up SO4 averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average SO4 value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(SO4_5yrPreDx = mean(value[ymd(SO4_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(SO4_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average SO4 value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(SO4_5yrPreCensor = mean(value[ymd(SO4_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(SO4_date)<=ymd(DeathTxCensor_date)]))
+```
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "SO4"))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific SO4 exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+### Getting rid of unnecessary columns
+```{r}
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, SO4_date, value))
+```
+
+
+## NO3 add Original NO3 Matching Files with All Months
+```{r}
+outfile4 <- here("Simm_fILD_2000_2017_NO3_2021_11_05.xlsx")
+NO3 <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(NO3, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the NO3 dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="NO3_date", names_prefix="NIT_", names_repair = "minimal")
+```
+
+### Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$NO3_date <- gsub("jan", "01-01-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("feb", "01-02-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("mar", "01-03-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("apr", "01-04-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("may", "01-05-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("jun", "01-06-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("jul", "01-07-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("aug", "01-08-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("sep", "01-09-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("oct", "01-10-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("nov", "01-11-20", PMx$NO3_date)
+PMx$NO3_date <- gsub("dec", "01-12-20", PMx$NO3_date)
+
+PMx$NO3_date <- format(as.Date(PMx$NO3_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$NO3_date <- as.Date(PMx$NO3_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("NO3_date"), as.Date)
+str(PM)
+```
+
+## Creating NO3 Exposure Variables
+Now I'm creating new variables where I am matching up NO3 averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average NO3 value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(NO3_5yrPreDx = mean(value[ymd(NO3_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(NO3_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average NO3 value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(NO3_5yrPreCensor = mean(value[ymd(NO3_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(NO3_date)<=ymd(DeathTxCensor_date)]))
+```
+
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "NO3"))
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, value, NO3_date))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific NO3 exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+
+## NH4 add Original NH4 Matching Files with All Months
+```{r}
+outfile4 <- here("Simm_fILD_2000_2017_NH4_2021_11_05.xlsx")
+NH4 <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(NH4, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the NH4 dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="NH4_date", names_prefix="NH4_", names_repair = "minimal")
+```
+
+### Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$NH4_date <- gsub("jan", "01-01-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("feb", "01-02-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("mar", "01-03-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("apr", "01-04-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("may", "01-05-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("jun", "01-06-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("jul", "01-07-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("aug", "01-08-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("sep", "01-09-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("oct", "01-10-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("nov", "01-11-20", PMx$NH4_date)
+PMx$NH4_date <- gsub("dec", "01-12-20", PMx$NH4_date)
+
+PMx$NH4_date <- format(as.Date(PMx$NH4_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$NH4_date <- as.Date(PMx$NH4_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("NH4_date"), as.Date)
+str(PM)
+```
+
+## Creating NH4 Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average NH4 value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(NH4_5yrPreDx = mean(value[ymd(NH4_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(NH4_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average NH4 value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(NH4_5yrPreCensor = mean(value[ymd(NH4_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(NH4_date)<=ymd(DeathTxCensor_date)]))
+```
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "NH4"))
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, value, NH4_date))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific NH4 exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+## BC add Original BC Matching Files with All Months
+```{r}
+outfile4 <- here("Simm_fILD_2000_2017_BC_2021_11_05.xlsx")
+BC <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(BC, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the PM dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="BC_date", names_prefix="BC_", names_repair = "minimal")
+```
+
+### Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$BC_date <- gsub("jan", "01-01-20", PMx$BC_date)
+PMx$BC_date <- gsub("feb", "01-02-20", PMx$BC_date)
+PMx$BC_date <- gsub("mar", "01-03-20", PMx$BC_date)
+PMx$BC_date <- gsub("apr", "01-04-20", PMx$BC_date)
+PMx$BC_date <- gsub("may", "01-05-20", PMx$BC_date)
+PMx$BC_date <- gsub("jun", "01-06-20", PMx$BC_date)
+PMx$BC_date <- gsub("jul", "01-07-20", PMx$BC_date)
+PMx$BC_date <- gsub("aug", "01-08-20", PMx$BC_date)
+PMx$BC_date <- gsub("sep", "01-09-20", PMx$BC_date)
+PMx$BC_date <- gsub("oct", "01-10-20", PMx$BC_date)
+PMx$BC_date <- gsub("nov", "01-11-20", PMx$BC_date)
+PMx$BC_date <- gsub("dec", "01-12-20", PMx$BC_date)
+
+PMx$BC_date <- format(as.Date(PMx$BC_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$BC_date <- as.Date(PMx$BC_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("BC_date"), as.Date)
+str(PM)
+```
+
+## Creating BC Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average BC value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(BC_5yrPreDx = mean(value[ymd(BC_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(BC_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average BC value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(BC_5yrPreCensor = mean(value[ymd(BC_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(BC_date)<=ymd(DeathTxCensor_date)]))
+```
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "BC"))
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, value, BC_date))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific PM exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+
+## OM add Original OM Matching Files with All Months
+```{r}
+outfile4 <- here("Simm_fILD_2000_2017_OM_2021_11_05.xlsx")
+OM <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(OM, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the PM dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="OM_date", names_prefix="OM_", names_repair = "minimal")
+```
+
+### Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$OM_date <- gsub("jan", "01-01-20", PMx$OM_date)
+PMx$OM_date <- gsub("feb", "01-02-20", PMx$OM_date)
+PMx$OM_date <- gsub("mar", "01-03-20", PMx$OM_date)
+PMx$OM_date <- gsub("apr", "01-04-20", PMx$OM_date)
+PMx$OM_date <- gsub("may", "01-05-20", PMx$OM_date)
+PMx$OM_date <- gsub("jun", "01-06-20", PMx$OM_date)
+PMx$OM_date <- gsub("jul", "01-07-20", PMx$OM_date)
+PMx$OM_date <- gsub("aug", "01-08-20", PMx$OM_date)
+PMx$OM_date <- gsub("sep", "01-09-20", PMx$OM_date)
+PMx$OM_date <- gsub("oct", "01-10-20", PMx$OM_date)
+PMx$OM_date <- gsub("nov", "01-11-20", PMx$OM_date)
+PMx$OM_date <- gsub("dec", "01-12-20", PMx$OM_date)
+
+PMx$OM_date <- format(as.Date(PMx$OM_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$OM_date <- as.Date(PMx$OM_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("OM_date"), as.Date)
+str(PM)
+```
+
+## Creating OM Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average OM value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(OM_5yrPreDx = mean(value[ymd(OM_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(OM_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average OM value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(OM_5yrPreCensor = mean(value[ymd(OM_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(OM_date)<=ymd(DeathTxCensor_date)]))
+```
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "OM"))
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, value, OM_date))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific PM exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+
+## SS add Original SS Matching Files with All Months
+```{r}
+outfile4 <- here("Simm_fILD_2000_2017_SS_2021_11_05.xlsx")
+SS <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(SS, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the PM dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="SS_date", names_prefix="SS_", names_repair = "minimal")
+```
+
+### Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$SS_date <- gsub("jan", "01-01-20", PMx$SS_date)
+PMx$SS_date <- gsub("feb", "01-02-20", PMx$SS_date)
+PMx$SS_date <- gsub("mar", "01-03-20", PMx$SS_date)
+PMx$SS_date <- gsub("apr", "01-04-20", PMx$SS_date)
+PMx$SS_date <- gsub("may", "01-05-20", PMx$SS_date)
+PMx$SS_date <- gsub("jun", "01-06-20", PMx$SS_date)
+PMx$SS_date <- gsub("jul", "01-07-20", PMx$SS_date)
+PMx$SS_date <- gsub("aug", "01-08-20", PMx$SS_date)
+PMx$SS_date <- gsub("sep", "01-09-20", PMx$SS_date)
+PMx$SS_date <- gsub("oct", "01-10-20", PMx$SS_date)
+PMx$SS_date <- gsub("nov", "01-11-20", PMx$SS_date)
+PMx$SS_date <- gsub("dec", "01-12-20", PMx$SS_date)
+
+PMx$SS_date <- format(as.Date(PMx$SS_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$SS_date <- as.Date(PMx$SS_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("SS_date"), as.Date)
+str(PM)
+```
+
+## Creating SS Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average SS value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(SS_5yrPreDx = mean(value[ymd(SS_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(SS_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average SS value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(SS_5yrPreCensor = mean(value[ymd(SS_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(SS_date)<=ymd(DeathTxCensor_date)]))
+```
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "SS"))
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, value, SS_date))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific PM exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+
+## Soil add Original Soil Matching Files with All Months
+```{r}
+outfile4 <- here("Simm_fILD_2000_2017_soil_2021_11_05.xlsx")
+Soil <- read_excel(outfile4)
+```
+
+```{r}
+PM <- inner_join(Soil, PM, by="ID")
+```
+
+Reorder so "ID" is the first column
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+### Pivoting to Long Format
+First we need to convert the PM dataframe into the long rather than the wide format, which will allow us to use it more easily in R's tidyverse as this is "tidy" formatting.
+```{r}
+PM <- PM %>% 
+  pivot_longer(cols=c(6:221), names_to="Soil_date", names_prefix="soil_", names_repair = "minimal")
+```
+
+### Convert date PM_date to same format as above
+```{r}
+PMx <- PM 
+PMx$Soil_date <- gsub("jan", "01-01-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("feb", "01-02-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("mar", "01-03-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("apr", "01-04-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("may", "01-05-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("jun", "01-06-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("jul", "01-07-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("aug", "01-08-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("sep", "01-09-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("oct", "01-10-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("nov", "01-11-20", PMx$Soil_date)
+PMx$Soil_date <- gsub("dec", "01-12-20", PMx$Soil_date)
+
+PMx$Soil_date <- format(as.Date(PMx$Soil_date, format="%d-%m-%Y"),"%Y-%m-%d")
+PMx$Soil_date <- as.Date(PMx$Soil_date)
+PM <- PMx
+```
+
+
+# Convert Date Columns to Date Format
+Next I need to convert all date columns to proper format
+```{r}
+PM <- PM %>% 
+  mutate_at(c("Soil_date"), as.Date)
+str(PM)
+```
+
+## Creating Soil Exposure Variables
+Now I'm creating new variables where I am matching up PM averages per year to years of major events for patients (year of diagnosis, year of death/lung transplant/censoring, etc)
+
+### 5yrs Pre-Diagnosis (Pre-Enrollment)
+Here I am calculating the average Soil value in the 5yrs prior to PFF registry enrollment.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(Soil_5yrPreDx = mean(value[ymd(Soil_date)>=(ymd(dx_date) - years(5)) & 
+                                        ymd(Soil_date)<=ymd(dx_date)]))
+```
+
+### 5yrs Pre-Censoring
+Here I am calculating the average Soil value in the 5yrs prior to censoring.
+```{r}
+PM <- PM %>% 
+  group_by(ID) %>% 
+  mutate(Soil_5yrPreCensor = mean(value[ymd(Soil_date)>=(ymd(DeathTxCensor_date) - years(5)) & 
+                                        ymd(Soil_date)<=ymd(DeathTxCensor_date)]))
+```
+
+### Remove Dataframes and variables not in use
+```{r}
+rm(list=c("PMx", "Soil"))
+PM <- PM %>% dplyr::select(!c(nrow, dist, lon, lat, value, Soil_date))
+```
+
+### Getting Rid of Duplicated IDs
+Now that we have calculated the patient-specific PM exposures, I can get rid of all rows other than the first row for each patient.
+```{r}
+PM <-  PM %>% 
+  distinct_at(vars(ID), .keep_all=T)
+```
+This takes us down to 1424 observations.
+
+
+
+## Reorder columns
+```{r}
+PM <- PM %>% dplyr::select(ID, everything(.))
+```
+
+## Creating "unknown" category for smoking history
+```{r}
+PM$smokeHx <- as.character(PM$smokeHx) 
+PM <- PM %>% mutate(smokeHx1=if_else(is.na(smokeHx), "Unknown", smokeHx))
+
+#now need to make new dich_smoking category
+PM$dich_smoking <- as.character(PM$dich_smoking) 
+PM <- PM %>% mutate(dich_smoking1=if_else(is.na(dich_smoking),"Unknown", dich_smoking))
+```
+
+Now need to remove old smoking variables and rename new ones
+```{r}
+PM <- PM %>% dplyr::select(-c(smokeHx, dich_smoking))
+PM <- PM %>% rename(c("smokeHx"="smokeHx1", "dich_smoking"="dich_smoking1"))
+PM$smokeHx <- as.factor(PM$smokeHx)
+PM$dich_smoking <- as.factor(PM$dich_smoking)
+PM$smokeHx <- fct_relevel(PM$smokeHx, c("Never","Former","Always","Unknown"))
+PM$dich_smoking <- fct_relevel(PM$dich_smoking, c("Never","Ever","Unknown"))
+```
+
+
+# Export File with All PM2.5 and Constituent Time Frames Matched
+```{r}
+write_xlsx(PM, path="Simmons_fILD_AllConstituentsMatched_2022_07_28.xlsx")
+```
+
+
+# Quantile-Based G-Computation Multi-Pollutant Survival Analysis - No Bootstrapping
+Multi-pollutant model without other covariates
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base cox model
+survival::coxph(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor, data=PM)
+
+#Next the quantile regression model
+qc.survfit1 <- qgcomp.cox.noboot(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ ., expnms=Xnm, data=PM[,c(Xnm, 'time_DeathTxCensor', 'deadORtx')], q=4)
+qc.survfit1
+
+#Lastly the HR is reported through the following
+exp(qc.survfit1$coef)
+exp(qc.survfit1$ci)
+```
+So the HR of the overall model is 2.13 (95% CI 1.89-2.40) and that is primarily driven by SO4, NH4, NO3, and OM
+
+Now to plot the findings
+```{r}
+plot(qc.survfit1)
+```
+
+Complete multi-pollutant model
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base cox model
+survival::coxph(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat, data=PM)
+
+#Next the quantile regression model
+qc.survfit2 <- qgcomp.cox.noboot(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ ., expnms=Xnm, data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'time_DeathTxCensor', 'deadORtx')], q=4)
+qc.survfit2
+
+#Lastly the HR is reported through the following
+exp(qc.survfit2$coef)
+exp(qc.survfit2$ci)
+```
+So the HR of the overall model is 2.19 (95% CI 1.93-2.48) and that is primarily driven by SO4, NH4, NO3, OM, and soil
+
+Now to plot the findings
+```{r}
+plot(qc.survfit2)
+```
+
+
+
+Complete multi-pollutant model + dx_yr
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base cox model
+survival::coxph(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat + dx_yr, data=PM)
+
+#Next the quantile regression model
+qc.survfit3 <- qgcomp.cox.noboot(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ ., expnms=Xnm, data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'dx_yr', 'time_DeathTxCensor', 'deadORtx')], q=4)
+qc.survfit3
+
+#Lastly the HR and it's 95% CIs are reported through the following
+exp(qc.survfit3$coef)
+exp(qc.survfit3$ci)
+```
+So the HR of the overall model is 7.63 (95% CI 6.34-9.19) and that is primarily driven by SO4, NH4, OM, NO3, and SS
+
+Now to plot the findings
+```{r}
+plot(qc.survfit3)
+```
+
+# Quantile-Based G-Computation Multi-Pollutant Baseline Lung Function Analysis - No Bootstrapping
+## Baseline FVC
+Multi-pollutant model without other covariates
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base linear model
+qc.fit1 <- qgcomp.noboot(fvc_pct~.,data=PM[,c(Xnm, 'fvc_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+#view the results
+qc.fit1
+```
+**So this tells us that the overall mixture beta=-4.94, indicating that for each 1 quantile increase of the mixture, the baseline FVC decreases by 4.94 units % predicted.** 
+This negative effect on FVC is primarily driven by NH4 > SO4 > OM > NO3
+
+Now to plot the findings
+```{r}
+plot(qc.fit1)
+```
+
+Complete multi-pollutant model
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(fvc_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat, data=PM)
+
+
+qc.fit2 <- qgcomp.noboot(fvc_pct~.,data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'fvc_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+qc.fit2
+```
+**So this tells us that the overall mixture beta=-4.44, indicating that for each 1 quantile increase of the mixture, the baseline FVC decreases by 4.44 units % predicted.** 
+This negative effect on FVC is primarily driven by NH4 > SO4 > OM > NO3
+
+Now to plot the findings
+```{r}
+plot(qc.fit2)
+```
+
+
+
+Complete multi-pollutant model + dx_yr
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(fvc_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat + dx_yr, data=PM)
+
+
+qc.fit3 <- qgcomp.noboot(fvc_pct~.,data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'dx_yr', 'fvc_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+qc.fit3
+```
+**So this tells us that the overall mixture beta=-5.27, indicating that for each 1 quantile increase of the mixture, the baseline FVC decreases by 5.27 units % predicted.** 
+This negative effect on FVC is primarily driven by NH4 > SO4 > OM > NO3
+
+Now to plot the findings
+```{r}
+plot(qc.fit3)
+```
+
+
+## Baseline DLCO
+Multi-pollutant model without other covariates
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base linear model
+qc.fit1 <- qgcomp.noboot(dlco_pct~.,data=PM[,c(Xnm, 'dlco_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+#view the results
+qc.fit1
+```
+**So this tells us that the overall mixture beta=-3.82, indicating that for each 1 quantile increase of the mixture, the baseline DLCO decreases by 3.82 units % predicted.** 
+This negative effect on DLCO is primarily driven by SO4 > NH4 > OM > Soil > NO3
+
+Now to plot the findings
+```{r}
+plot(qc.fit1)
+```
+
+Complete multi-pollutant model
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(dlco_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat, data=PM)
+
+
+qc.fit2 <- qgcomp.noboot(dlco_pct~.,data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'dlco_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+qc.fit2
+```
+**So this tells us that the overall mixture beta=-4.14, indicating that for each 1 quantile increase of the mixture, the baseline DLCO decreases by 4.14 units % predicted.** 
+This negative effect on DLCO is primarily driven by SO4 > NH4 > OM > NO3 > Soil
+
+Now to plot the findings
+```{r}
+plot(qc.fit2)
+```
+
+
+
+Complete multi-pollutant model + dx_yr
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(dlco_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat + dx_yr, data=PM)
+
+
+qc.fit3 <- qgcomp.noboot(dlco_pct~.,data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'dx_yr', 'dlco_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+qc.fit3
+```
+**So this tells us that the overall mixture beta=-6.90, indicating that for each 1 quantile increase of the mixture, the baseline DLCO decreases by 6.90 units % predicted.** 
+This negative effect on DLCO is primarily driven by SO4 > NH4 > OM > SS > NO3 > Soil
+
+Now to plot the findings
+```{r}
+plot(qc.fit3)
+```
+
+
+
+
+# Quantile-Based G-Computation Multi-Pollutant Survival Analysis - Bootstrapping
+Multi-pollutant model without other covariates
+```{r}
+PMx <- PM %>% filter(!is.na(time_DeathTxCensor))
+
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base cox model
+survival::coxph(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor, data=PMx)
+
+#Next the quantile regression model
+set.seed(5)
+qc.survfit1 <- qgcomp.cox.boot(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ ., expnms=Xnm, data=PMx[,c(Xnm, 'time_DeathTxCensor', 'deadORtx')], q=4)
+qc.survfit1
+
+#Lastly the HR is reported through the following
+exp(qc.survfit1$coef)
+exp(qc.survfit1$ci)
+```
+So the HR of the overall model is 2.13 (95% CI 1.88-2.41) and that is primarily driven by NH4, Soil, OM and SS
+
+Now to plot the findings
+```{r}
+plot(qc.survfit1)
+```
+
+Now to test proportional hazards
+```{r}
+survival::cox.zph(qc.survfit1$fit)
+```
+
+
+Multi-pollutant model with full covariates
+```{r}
+PMx <- PM %>% filter(!is.na(PM_5yrPreCensor) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(ADI_nat))
+
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+#Next construct the base cox model
+survival::coxph(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + ADI_nat, data=PMx)
+
+#Next the quantile regression model
+set.seed(5)
+qc.survfit2 <- qgcomp.cox.boot(survival::Surv(time_DeathTxCensor, deadORtx==1) ~ ., expnms=Xnm, data=PMx[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'ADI_nat', 'time_DeathTxCensor', 'deadORtx')], q=4, parallel=T)
+qc.survfit2
+
+#Lastly the HR is reported through the following
+exp(qc.survfit2$coef)
+exp(qc.survfit2$ci)
+```
+So the HR of the overall model is 1.89 (95% CI 1.65-2.16) and that is primarily driven by NH4, OM, and soil
+
+Now to plot the findings
+```{r}
+#plot(qc.survfit2)
+#Get the error "Error in eval(predvars, data, env) : object 'sex' not found"
+```
+
+Now to test proportional hazards
+```{r}
+survival::cox.zph(qc.survfit2$fit)
+```
+
+
+
+
+
