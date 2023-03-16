@@ -1,0 +1,831 @@
+---
+title: "Post Publication Re-Analysis -Combined Cohorts Figure Development"
+author: "Gillian Goobie"
+date: "2023/03/15"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+library(raster)
+library(forestplot)
+```
+
+# Importing Datasets
+Here I am importing the file which contains monthly SS level estimates by satellite at nearest lon/lat to CAREPF patient residential addresses. These are linked to the patient ID.
+```{r}
+outfile1 <- here("PostPublicationReanalysis_AllSites_ConstituentsANDLungFxn_2023_03_15.xlsx")
+constit <- read_excel(outfile1, sheet="constituent_breakdown")
+fvc <- read_excel(outfile1, sheet="fvc_results")
+dlco <- read_excel(outfile1, sheet="dlco_results")
+```
+
+# Stacked Bar Charts
+## PM2.5 Total Mass
+```{r}
+str(constit)
+constit$site <- as.factor(constit$site)
+constit$site <- fct_relevel(constit$site, c("Simmons", "PFF", "CARE-PF"))
+
+constit$constituent <- as.factor(constit$constituent)
+constit$constituent <- fct_relevel(constit$constituent, c("SO4", "NO3", "NH4", "BC", "OM", "SS", "Soil", "Other"))
+str(constit)
+```
+
+```{r}
+(ggplot(constit, aes(fill=constituent, y=median, x=site))+
+  geom_bar(position="stack", stat="identity")+
+   labs(x="Cohort", y="Quantity of Each PM2.5 Constituent (ug/m^3)")+
+   scale_fill_manual(values=c("SO4"="coral1", "NO3"="steelblue", "NH4"="gold1", "BC"="black", "OM"="green4", "SS"="slategray1", "Soil"="tan4", "Other"="wheat3")))
+```
+
+## Proportions
+```{r}
+(ggplot(constit, aes(fill=constituent, y=median, x=site))+
+  geom_bar(position="fill", stat="identity")+
+   labs(x="Cohort", y="Proportion of Each PM2.5 Constituent")+
+   scale_fill_manual(values=c("SO4"="coral1", "NO3"="steelblue", "NH4"="gold1", "BC"="black", "OM"="green4", "SS"="slategray1", "Soil"="tan4", "Other"="wheat3")))
+```
+
+
+# Forest Plots
+## FVC
+### PM2.5, SO4, NO3, and NH4
+```{r}
+fvc <- structure(list(mean=c(NA, NA, -0.92, -0.53, -0.87, NA, -1.57, -2.06, -3.51, NA, -3.85, 0.11, -3.31, NA, -4.2, -2.8, -4.67),
+                      lower=c(NA, NA, -1.43, -0.98, -1.26, NA, -2.48, -3.1, -4.8, NA, -7.43, -1.25, -5.38, NA, -6.57, -4.98, -7.29),
+                      upper=c(NA, NA,  -0.41, -0.09, -0.48, NA, -0.67, -1.03, -2.22, NA, -0.28, 1.48, -1.24, NA, -1.84, -0.61, -2.04)),
+                 .Names=c("mean","lower","upper"),
+                 row.names=c(NA, -11L),
+                 class="data.frame")
+
+tabletext <- cbind(c("  Pollutant", "PM2.5", "  Simmons", "  PFF", "  CARE-PF", "SO4", "  Simmons", "  PFF", "  CARE-PF", "NO3", "  Simmons", "  PFF", "  CARE-PF", "NH4", "  Simmons", "  PFF", "  CARE-PF"),
+                   c("Beta (95% CI)", "", "-0.92 (-1.43 to -0.41)", "-0.53 (-0.98 to -0.09)", "-0.87 (-1.26 to -0.48)", "", "-1.57 (-2.48 to -0.67)", "-2.06 (-3.10 to -1.03)", "-3.51 (-4.80 to -2.22)", "", "-3.85 (-7.43 to -0.28)", "0.11 (-1.25 to 1.48)", "-3.31 (-5.38 to -1.24)", "", "-4.20 (-6.57 to -1.84)", "-2.80 (-4.98 to -0.61)", "-4.67 (-7.29 to -2.04)"),
+                   c("P-value", "", "0.0004", "0.02", "0.0001", "", "0.0007", "<0.0001", "<0.0001", "", "0.03", "0.87", "0.002", "", "0.0005", "0.01", "0.0005"))
+
+
+fvc %>% forestplot(labeltext = tabletext, 
+             is.summary = c(rep(TRUE, 2), rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3)),
+             clip = c(-8, 2), 
+             col = fpColors(box = "royalblue",
+                            line = "darkblue",
+                           summary = "royalblue"))
+```
+
+
+### BC, OM, SS, and Soil
+```{r}
+fvc <- structure(list(mean=c(NA, NA, -5.71, -1.06, -7.92, NA, -2.62, 0.43, -0.27, NA, -26.36, -1.74, -7.07, NA, -7.24, 0.29, -4.11),
+                      lower=c(NA, NA, -12.9, -4.24, -12.25, NA, -4.39, -0.41, -0.82, NA, -38.46, -4.02, -13.03, NA, -17.2, -1.82, -9.1),
+                      upper=c(NA, NA, 1.48, 2.11, -3.60, NA, -0.86, 1.27, 0.28, NA, -14.27, 0.54, -1.11, NA, 2.71, 2.39, 0.88)),
+                 .Names=c("mean","lower","upper"),
+                 row.names=c(NA, -11L),
+                 class="data.frame")
+
+tabletext <- cbind(c("  Pollutant", "Black Carbon", "  Simmons", "  PFF", "  CARE-PF", "Organic Matter", "  Simmons", "  PFF", "  CARE-PF", "Sea Salt", "  Simmons", "  PFF", "  CARE-PF", "Soil", "  Simmons", "  PFF", "  CARE-PF"),
+                   c("Beta (95% CI)", "", "-5.71 (-12.9 to 1.48)", "-1.06 (-4.24 to 2.11)", "-7.92 (-12.25 to -3.60)", "", "-2.62 (-4.39 to -0.86)", "0.43 (-0.41 to 1.27)", "-0.27 (-0.82 to 0.28)", "", "-26.36 (-38.46 to -14.27)", "-1.74 (-4.02 to 0.54)", "-7.07 (-13.03 to -1.11)", "", "-7.24 (-17.20 to 2.71)", "0.29 (-1.82 to 2.39)", "-4.11 (-9.10 to 0.88)"),
+                   c("P-value", "", "0.12", "0.51", "0.0003", "", "0.003", "0.32", "0.34", "", "<0.0001", "0.14", "0.02", "", "0.15", "0.79", "0.11"))
+
+
+fvc %>% forestplot(labeltext = tabletext, 
+             is.summary = c(rep(TRUE, 2), rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3)),
+             clip = c(-30, 15), 
+             col = fpColors(box = "royalblue",
+                            line = "darkblue",
+                           summary = "royalblue"))
+```
+
+## DLCO
+### PM2.5, SO4, NO3, and NH4
+```{r}
+dlco <- structure(list(mean=c(NA, NA, 0.09, -0.92, 0.15, NA, 0.28, -3.54, 2.36, NA, 0.96, 0.64, 5.67, NA, 0.94, -5.55, 7.37),
+                      lower=c(NA, NA, -0.44, -1.34, -0.29, NA, -0.66, -4.52, 0.81, NA, -2.72, -0.64, 3.23, NA, -1.51, -7.61, 4.24),
+                      upper=c(NA, NA, 0.62, -0.50, 0.60, NA, 1.22, -2.57, 3.90, NA, 4.65, 1.93, 8.11, NA, 3.39, -3.49, 10.5)),
+                 .Names=c("mean","lower","upper"),
+                 row.names=c(NA, -11L),
+                 class="data.frame")
+
+tabletext <- cbind(c("  Pollutant", "PM2.5", "  Simmons", "  PFF", "  CARE-PF", "SO4", "  Simmons", "  PFF", "  CARE-PF", "NO3", "  Simmons", "  PFF", "  CARE-PF", "NH4", "  Simmons", "  PFF", "  CARE-PF"),
+                   c("Beta (95% CI)", "", "0.09 (-0.44 to 0.62)", "-0.92 (-1.34 to -0.50)", "0.15 (-0.29 to 0.60)", "", "0.28 (-0.66 to 1.22)", "-3.54 (-4.52 to -2.57)", "2.36 (0.81 to 3.90)", "", "0.96 (-2.72 to 4.65)", "0.64 (-0.64 to 1.93)", "5.67 (3.23 to 8.11)", "", "0.94 (-1.51 to 3.39)", "-5.55 (-7.61 to -3.49)", "7.37 (4.24 to 10.5)"),
+                   c("P-value", "", "0.74", "<0.0001", "0.50", "", "0.56", "<0.0001", "0.003", "", "0.61", "0.33", "<0.0001", "", "0.45", "<0.0001", "<0.0001"))
+
+
+dlco %>% forestplot(labeltext = tabletext, 
+             is.summary = c(rep(TRUE, 2), rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3)),
+             clip = c(-8, 11), 
+             col = fpColors(box = "royalblue",
+                            line = "darkblue",
+                           summary = "royalblue"))
+```
+
+
+### BC, OM, SS, and Soil
+```{r}
+dlco <- structure(list(mean=c(NA, NA, 4.56, -4.18, -4.46, NA, -0.70, -0.27, -0.78, NA, -13.87, 3.13, -20.44, NA, -0.51, 2.30, 7.57),
+                      lower=c(NA, NA, -2.92, -7.16, -9.42, NA, -2.51, -1.07, -1.39, NA, -26.33, 0.90, -26.81, NA, -10.66, 0.29, 1.67),
+                      upper=c(NA, NA,  12.04, -1.19, 0.50, NA, 1.11, 0.52, -0.17, NA, -1.41, 5.37, -14.07, NA, 9.64, 4.31, 13.48)),
+                 .Names=c("mean","lower","upper"),
+                 row.names=c(NA, -11L),
+                 class="data.frame")
+
+tabletext <- cbind(c("  Pollutant", "Black Carbon", "  Simmons", "  PFF", "  CARE-PF", "Organic Matter", "  Simmons", "  PFF", "  CARE-PF", "Sea Salt", "  Simmons", "  PFF", "  CARE-PF", "Soil", "  Simmons", "  PFF", "  CARE-PF"),
+                   c("Beta (95% CI)", "", "4.56 (-2.92 to 12.04)", "-4.18 (-7.16 to -1.19)", "-4.46 (-9.42 to 0.50)", "", "-0.70 (-2.51 to 1.11)", "-0.27 (-1.07 to 0.52)", "-0.78 (-1.39 to -0.17)", "", "-13.87 (-26.33 to -1.41)", "3.13 (0.90 to 5.37)", "-20.44 (-26.81 to -14.07)", "", "-0.51 (-10.66 to 9.64)", "2.30 (0.29 to 4.31)", "7.57 (1.67 to 13.48)"),
+                   c("P-value", "", "0.23", "0.006", "0.08", "", "0.45", "0.50", "0.01", "", "0.03", "0.006", "<0.0001", "", "0.92", "0.02", "0.01"))
+
+
+dlco %>% forestplot(labeltext = tabletext, 
+             is.summary = c(rep(TRUE, 2), rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3), TRUE, rep(FALSE, 3)),
+             clip = c(-25, 15), 
+             col = fpColors(box = "royalblue",
+                            line = "darkblue",
+                           summary = "royalblue"))
+```
+
+# Tornado Plot for Multi-Constituent Models
+```{r}
+outfile2 <- here("MulticonstituentEffectEstimates_2023_03_16.xlsx")
+multi <- read_excel(outfile2, sheet="MultiConstituentModelResults")
+
+multi$pollutant <- fct_relevel(multi$pollutant, c("Soil", "SS", "OM", "BC", "NH4", "NO3", "SO4"))
+```
+
+## Tornado plot for Mortality Models
+### Simmons
+```{r}
+mort_Simm <- multi %>% filter(cohort=="Simmons" & outcome=="mortality")
+(mort_Simm %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "forestgreen",
+                               "NO3" = "forestgreen",
+                               "NH4" = "firebrick2",
+                               "BC" = "firebrick2",
+                               "OM" = "firebrick2",
+                               "SS"="firebrick2",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### PFF
+```{r}
+mort_PFF <- multi %>% filter(cohort=="PFF" & outcome=="mortality")
+(mort_PFF %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "forestgreen",
+                               "NO3" = "forestgreen",
+                               "NH4" = "forestgreen",
+                               "BC" = "firebrick2",
+                               "OM" = "firebrick2",
+                               "SS"="firebrick2",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### CARE-PF
+```{r}
+mort_CARE <- multi %>% filter(cohort=="CARE-PF" & outcome=="mortality")
+(mort_CARE %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "forestgreen",
+                               "NO3" = "firebrick2",
+                               "NH4" = "forestgreen",
+                               "BC" = "firebrick2",
+                               "OM" = "forestgreen",
+                               "SS"="forestgreen",
+                               "Soil"="firebrick2"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### Combined Cohorts Meta-Analysis Multiconstituent Models
+```{r}
+mort_Combo <- multi %>% filter(cohort=="Meta-Analysis" & outcome=="mortality")
+(mort_Combo %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "forestgreen",
+                               "NH4" = "forestgreen",
+                               "BC" = "firebrick2",
+                               "OM" = "forestgreen",
+                               "SS"="forestgreen",
+                               "Soil"="firebrick2"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+
+## Tornado plot for Baseline FVC Models
+### Simmons
+```{r}
+FVC_Simm <- multi %>% filter(cohort=="Simmons" & outcome=="baselineFVC")
+(FVC_Simm %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "firebrick2",
+                               "NH4" = "firebrick2",
+                               "BC" = "forestgreen",
+                               "OM" = "firebrick2",
+                               "SS"="forestgreen",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### PFF
+```{r}
+FVC_PFF <- multi %>% filter(cohort=="PFF" & outcome=="baselineFVC")
+(FVC_PFF %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "firebrick2",
+                               "NH4" = "firebrick2",
+                               "BC" = "forestgreen",
+                               "OM" = "forestgreen",
+                               "SS"="forestgreen",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### CARE-PF
+```{r}
+FVC_CARE <- multi %>% filter(cohort=="CARE-PF" & outcome=="baselineFVC")
+(FVC_CARE %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "forestgreen",
+                               "NH4" = "firebrick2",
+                               "BC" = "firebrick2",
+                               "OM" = "firebrick2",
+                               "SS"="firebrick2",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+
+## Tornado plot for Baseline DLCO Models
+### Simmons
+```{r}
+DLCO_Simm <- multi %>% filter(cohort=="Simmons" & outcome=="baselineDLCO")
+(DLCO_Simm %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "firebrick2",
+                               "NH4" = "firebrick2",
+                               "BC" = "forestgreen",
+                               "OM" = "firebrick2",
+                               "SS"="forestgreen",
+                               "Soil"="firebrick2"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### PFF
+```{r}
+DLCO_PFF <- multi %>% filter(cohort=="PFF" & outcome=="baselineDLCO")
+(DLCO_PFF %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "forestgreen",
+                               "NH4" = "firebrick2",
+                               "BC" = "forestgreen",
+                               "OM" = "forestgreen",
+                               "SS"="forestgreen",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+### CARE-PF
+```{r}
+DLCO_CARE <- multi %>% filter(cohort=="CARE-PF" & outcome=="baselineDLCO")
+(DLCO_CARE %>% ggplot(aes(x=effect, y=pollutant, fill=pollutant))+
+  geom_bar(stat="identity", position="identity", width=0.75)+
+    scale_fill_manual(values = c("SO4" = "firebrick2",
+                               "NO3" = "forestgreen",
+                               "NH4" = "firebrick2",
+                               "BC" = "forestgreen",
+                               "OM" = "firebrick2",
+                               "SS"="firebrick2",
+                               "Soil"="forestgreen"))+
+    scale_x_continuous(limits = c(-1, 1), expand = c(0, 0))+
+    geom_text(aes(label=effect), stat="identity", position=position_stack(vjust=0.5), color="black")+
+    theme_bw()+
+    labs(x="Effect Size", y="PM2.5 Constituent"))
+```
+
+
+# Scatterplot Matrix
+```{r}
+outfile3 <- here("CombinedCohorts_TimeVaryingSummarizedExposures_2023_03_16.xlsx")
+PM <- read_excel(outfile3)
+```
+
+```{r}
+PM <- PM %>% pivot_wider(names_from=pollutant, values_from=c(Mean, Median, Q1, Q3, StdDev))
+```
+
+```{r}
+PM$cohort <- fct_relevel(PM$cohort, c("Simm", "PFF", "CARE"))
+```
+
+
+## Scatterplot Matrix
+```{r, fig.height=7, fig.width=10}
+colnames(PM)
+GGally::ggpairs(PM, columns=c(11:18), aes(color=PM$cohort))
+```
+
+Scatterplot of continuous Median_PM vs Median_SO4
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_SO4, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="SO4 in the 1year Pre-Sampling", title="PM2.5 and SO4 Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 6.5))
+```
+
+Scatterplot of continuous Median_PM vs Median_NO3
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_NO3, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="NO3 in the 1year Pre-Sampling", title="PM2.5 and NO3 Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 4))
+```
+
+Scatterplot of continuous Median_PM vs Median_NH4
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_NH4, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="NH4 in the 1year Pre-Sampling", title="PM2.5 and NH4 Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_PM vs Median_BC
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_BC, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="BC in the 1year Pre-Sampling", title="PM2.5 and BC Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 1.75))
+```
+
+Scatterplot of continuous Median_PM vs Median_OM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_OM, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="OM in the 1year Pre-Sampling", title="PM2.5 and OM Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 7))
+```
+
+Scatterplot of continuous Median_PM vs Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_SS, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="SS in the 1year Pre-Sampling", title="PM2.5 and SS Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 3))
+```
+
+Scatterplot of continuous Median_PM vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="PM2.5 and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(2.5, 17)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_SO4 vs Median_NO3
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, y=Median_NO3, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SO4 in 5yr Pre-Censoring", y="NO3 in the 1year Pre-Sampling", title="SO4 and NO3 Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 6.5)+
+   ylim(0, 4))
+```
+
+Scatterplot of continuous Median_SO4 vs Median_NH4
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, y=Median_NH4, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SO4 in 5yr Pre-Censoring", y="NH4 in the 1year Pre-Sampling", title="SO4 and NH4 Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 6.5)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_SO4 vs Median_BC
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, y=Median_BC, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SO4 in 5yr Pre-Censoring", y="BC in the 1year Pre-Sampling", title="SO4 and BC Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 6.5)+
+   ylim(0, 1.75))
+```
+
+Scatterplot of continuous Median_SO4 vs Median_OM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, y=Median_OM, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SO4 in 5yr Pre-Censoring", y="OM in the 1year Pre-Sampling", title="SO4 and OM Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 6.5)+
+   ylim(0, 7))
+```
+
+Scatterplot of continuous Median_SO4 vs Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, y=Median_SS, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SO4 in 5yr Pre-Censoring", y="SS in the 1year Pre-Sampling", title="SO4 and SS Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 6.5)+
+   ylim(0, 3))
+```
+
+Scatterplot of continuous Median_SO4 vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SO4 in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="SO4 and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 6.5)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_NO3 vs Median_NH4
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NO3, y=Median_NH4, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NO3 in 5yr Pre-Censoring", y="NH4 in the 1year Pre-Sampling", title="NO3 and NH4 Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 4)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_NO3 vs Median_BC
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NO3, y=Median_BC, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NO3 in 5yr Pre-Censoring", y="BC in the 1year Pre-Sampling", title="NO3 and BC Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 4)+
+   ylim(0, 1.75))
+```
+
+Scatterplot of continuous Median_NO3 vs Median_OM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NO3, y=Median_OM, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NO3 in 5yr Pre-Censoring", y="OM in the 1year Pre-Sampling", title="NO3 and OM Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 4)+
+   ylim(0, 7))
+```
+
+Scatterplot of continuous Median_NO3 vs Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NO3, y=Median_SS, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NO3 in 5yr Pre-Censoring", y="SS in the 1year Pre-Sampling", title="NO3 and SS Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 4)+
+   ylim(0, 3))
+```
+
+Scatterplot of continuous Median_NO3 vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NO3, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NO3 in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="NO3 and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 4)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_NH4 vs Median_BC
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NH4, y=Median_BC, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NH4 in 5yr Pre-Censoring", y="BC in the 1year Pre-Sampling", title="NH4 and BC Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 2.5)+
+   ylim(0, 1.75))
+```
+
+Scatterplot of continuous Median_NH4 vs Median_OM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NH4, y=Median_OM, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NH4 in 5yr Pre-Censoring", y="OM in the 1year Pre-Sampling", title="NH4 and OM Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 2.5)+
+   ylim(0, 7))
+```
+
+Scatterplot of continuous Median_NH4 vs Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NH4, y=Median_SS, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NH4 in 5yr Pre-Censoring", y="SS in the 1year Pre-Sampling", title="NH4 and SS Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 2.5)+
+   ylim(0, 3))
+```
+
+Scatterplot of continuous Median_NH4 vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NH4, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="NH4 in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="NH4 and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 2.5)+
+   ylim(0, 2.5))
+```
+
+
+
+Scatterplot of continuous Median_BC vs Median_OM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_BC, y=Median_OM, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="BC in 5yr Pre-Censoring", y="OM in the 1year Pre-Sampling", title="BC and OM Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 1.75)+
+   ylim(0, 7))
+```
+
+Scatterplot of continuous Median_BC vs Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_BC, y=Median_SS, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="BC in 5yr Pre-Censoring", y="SS in the 1year Pre-Sampling", title="BC and SS Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 1.75)+
+   ylim(0, 3))
+```
+
+Scatterplot of continuous Median_BC vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_BC, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="BC in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="BC and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 1.75)+
+   ylim(0, 2.5))
+```
+
+
+Scatterplot of continuous Median_OM vs Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_OM, y=Median_SS, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="OM in 5yr Pre-Censoring", y="SS in the 1year Pre-Sampling", title="OM and SS Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 7)+
+   ylim(0, 3))
+```
+
+Scatterplot of continuous Median_OM vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_OM, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="OM in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="OM and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 7)+
+   ylim(0, 2.5))
+```
+
+Scatterplot of continuous Median_SS vs Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SS, y=Median_Soil, color=cohort))+
+   geom_point(alpha=0.7)+
+   labs(x="SS in 5yr Pre-Censoring", y="Soil in the 1year Pre-Sampling", title="SS and Soil Constituent Correlation")+
+   theme(plot.title = element_text(hjust = 0.5))+     
+   geom_smooth(method="lm", se = FALSE) +
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   xlim(0, 3)+
+   ylim(0, 2.5))
+```
+
+
+
+### Density Plots
+Density plot of Median_PM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_PM, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="PM2.5 in 5yr Pre-Censoring", y="Density of Patients with this PM2.5 Level", title="PM2.5 Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(2.5, 17))
+```
+
+Density plot of Median_SO4
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SO4, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="SO4 in 5yr Pre-Censoring", y="Density of Patients with this SO4 Level", title="SO4 Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 6.5))
+```
+
+Density plot of Median_NO3
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NO3, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="NO3 in 5yr Pre-Censoring", y="Density of Patients with this NO3 Level", title="NO3 Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 4))
+```
+
+Density plot of Median_NH4
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_NH4, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="NH4 in 5yr Pre-Censoring", y="Density of Patients with this NH4 Level", title="NH4 Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 2.5))
+```
+
+Density plot of Median_BC
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_BC, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="BC in 5yr Pre-Censoring", y="Density of Patients with this BC Level", title="BC Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 1.75))
+```
+
+Density plot of Median_OM
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_OM, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="OM in 5yr Pre-Censoring", y="Density of Patients with this OM Level", title="OM Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 7))
+```
+
+Density plot of Median_SS
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_SS, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="SS in 5yr Pre-Censoring", y="Density of Patients with this SS Level", title="SS Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 3))
+```
+
+Density plot of Median_Soil
+```{r, height=5, width=5}
+(PM %>% ggplot(aes(x=Median_Soil, color=cohort))+
+   geom_density(alpha=0.7, aes(fill=cohort))+
+   labs(x="Soil in 5yr Pre-Censoring", y="Density of Patients with this Soil Level", title="Soil Density Plot")+
+   theme(plot.title = element_text(hjust = 0.5))+
+   scale_color_manual(values=c("gold1", "steelblue1", "red"))+
+   scale_fill_manual(values=c("lightgoldenrod1", "skyblue1", "indianred1"))+
+   xlim(0, 2.5))
+```
+

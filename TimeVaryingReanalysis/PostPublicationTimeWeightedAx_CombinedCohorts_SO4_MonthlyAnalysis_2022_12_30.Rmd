@@ -1,0 +1,1080 @@
+---
+title: "SO4 Analysis with All Cohorts - Post-Publication Time-Weighted Analysis"
+author: "Gillian Goobie"
+date: "2022/12/27"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(raster)
+library(data.table)
+library(intervalaverage)
+```
+
+# Simmons - Importing Datasets
+Here I am importing the file which contains monthly SO4 level estimates by satellite at nearest lon/lat to Simmons patient residential addresses. These are linked to the patient ID.
+```{r}
+outfile1 <- here("MonthlySO4Data/Simmons_fILD_2000_2017_SO4_2021_11_07.xlsx")
+SO4 <- read_excel(outfile1)
+```
+
+Here I am importing the file which I used for my ADI work that contains the baseline clinical and demographic data for 1425 patients who have ADI
+```{r}
+outfile2 <- here("MonthlySO4Data/Simmons_fILDPts_BaselineData_2022_03_28.xlsx")
+Simm <- read_excel(outfile2)
+```
+
+# Simmons - Simplifying SO4 Dataframe
+```{r}
+SO4 <- SO4 %>% dplyr::select(!c(nrow, dist, lon, lat))
+colnames(SO4)
+```
+
+```{r}
+SO4 <- SO4 %>% 
+  pivot_longer(cols=c(2:217), names_to="SO4_date", names_prefix="SO4_")
+```
+
+```{r}
+SO4x <- SO4 
+SO4x$SO4_date <- gsub("jan", "01-01-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("feb", "01-02-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("mar", "01-03-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("apr", "01-04-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("may", "01-05-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("jun", "01-06-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("jul", "01-07-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("aug", "01-08-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("sep", "01-09-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("oct", "01-10-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("nov", "01-11-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("dec", "01-12-20", SO4x$SO4_date)
+
+SO4x$SO4_date <- format(as.Date(SO4x$SO4_date, format="%d-%m-%Y"),"%Y-%m-%d")
+SO4x$SO4_date <- as.Date(SO4x$SO4_date)
+SO4 <- SO4x
+rm(SO4x)
+```
+
+
+# Simmons - Simplifying Simm Dataframe
+## Simmons - Death/Transplant/Censoring Date
+Extracting year of diagnosis and year of death/transplant/censoring
+```{r}
+#Start with the year of diagnosis
+Simm <- Simm %>% 
+  mutate(dx_yrmo = format(as.Date(Simm$dx_date, format="%Y-%m-%d"),"%Y-%m"))
+Simm <- Simm %>% 
+  mutate(dx_yr = format(as.Date(Simm$dx_date, format="%Y-%m-%d"),"%Y"))
+Simm$dx_yr <- as.numeric(Simm$dx_yr)
+
+#Then the year of death or lung transplant
+Simm <- Simm %>% 
+  mutate(deathORtx_date = if_else(!is.na(tx_date), tx_date, death_date))
+Simm <- Simm %>% 
+  mutate(deathORtx_yrmo = format(as.Date(Simm$deathORtx_date, format="%Y-%m-%d"),"%Y-%m"))
+
+#Then the year the records were last updated (i.e. year of censoring)
+Simm <- Simm %>% 
+  mutate(DeathTxCensor_date = if_else(!is.na(deathORtx_date), deathORtx_date, last_updated))
+Simm <- Simm %>% 
+  mutate(censor_yrmo = format(as.Date(Simm$DeathTxCensor_date, format="%Y-%m-%d"),"%Y-%m"))
+```
+
+## Simmons - Removing Unnecessary Columns and Correcting Dates
+```{r}
+Simm <- Simm %>% dplyr::select(!c(ADI_state, lat, lon, City, State, zip5, UPMC_lastvisit, Simmons_lastvisit, pkyrs, fev1_pre, fev1_pct, fvc_pre, dlco_pre, pft_timefromdx, ethnicity, dx_type, deathORtx_date, deathORtx_yrmo))
+Simm <- Simm %>% 
+  mutate_at(c("dob","death_date", "last_updated", "tx_date", "dx_date", "consent_date", "pft_date", "DeathTxCensor_date"), as.Date)
+str(Simm)
+```
+
+## Simmons - Correcting Smoking
+Need to correct smoking variables
+```{r}
+Simm$smokeHx <- as.character(Simm$smokeHx) 
+Simm <- Simm %>% mutate(smokeHx1=if_else(is.na(smokeHx), "Unknown", smokeHx))
+
+#now need to make new dich_smoking category
+Simm$dich_smoking <- as.character(Simm$dich_smoking) 
+Simm <- Simm %>% mutate(dich_smoking1=if_else(is.na(dich_smoking),"Unknown", dich_smoking))
+```
+
+Now need to remove old smoking variables and rename new ones
+```{r}
+Simm <- Simm %>% dplyr::select(-c(smokeHx, dich_smoking))
+Simm <- Simm %>% rename(c("smokeHx"="smokeHx1", "dich_smoking"="dich_smoking1"))
+Simm$smokeHx <- as.factor(Simm$smokeHx)
+Simm$dich_smoking <- as.factor(Simm$dich_smoking)
+Simm$smokeHx <- fct_relevel(Simm$smokeHx, c("Never","Former","Always","Unknown"))
+Simm$dich_smoking <- fct_relevel(Simm$dich_smoking, c("Never","Ever","Unknown"))
+```
+
+## Simmons - Correcting Factors
+Need to correct other factor variables
+```{r}
+Simm$sex <- fct_relevel(Simm$sex, c("M","F"))
+Simm$race <- fct_relevel(Simm$race, c("W","B","A","N","U"))
+Simm$dich_Race <- fct_relevel(Simm$dich_Race, c("White","Non-White"))
+Simm$dx <- fct_relevel(Simm$dx, c("IPF"))
+Simm$dx_group <- fct_relevel(Simm$dx_group, c("IPF"))
+Simm <- Simm %>% mutate_at(c("status","died", "txed", "deadORtx"), as.factor)
+```
+
+## Simmons - Creating New Variables
+### Simmons - IPF vs Other Diagnosis
+```{r}
+Simm <- Simm %>% mutate(dx_IPF=ifelse(dx=="IPF", "IPF", "not_IPF"))  
+Simm$dx_IPF <- fct_relevel(Simm$dx_IPF, c("IPF"))
+```
+
+### Simmons - Disadvantage Distribution
+Creating this empirical cumulative distribution will allow us to combine the analyses of all three cohorts even though the measurements for disadvantage are different between the three.
+```{r}
+plot(ecdf(Simm$ADI_nat))
+Simm$disadv <- ecdf(Simm$ADI_nat)(Simm$ADI_nat)
+```
+
+
+
+
+# Simmons - Modifying Simmons Dataset
+Take down Simmons dataset to the 1424 patients with complete data (currently at 1425)
+```{r}
+IDs <- as.data.table(unique(SO4$ID))
+IDs <- IDs %>% rename("ID"="V1")
+Simm <- left_join(IDs, Simm, by="ID")
+```
+
+
+```{r}
+Simm <- Simm %>% mutate(days_DeathTxCensor=(time_DeathTxCensor*365.25))
+```
+Longest time_DeathTxCensor= 20.427105yrs =7461days
+
+30-day longest time interval would be 7470 days
+```{r}
+start <- seq(1, 7441, by = 30)
+start
+end <- seq(30, 7470, by = 30)
+end
+```
+
+Repeat the list of intervals 1424 times (number of patients in Simmons)
+```{r}
+start <- rep(start, times=1424)
+end <- rep(end, times=1424)
+intervals <- as.data.frame(cbind(start, end))
+```
+
+Add ID column to intervals
+```{r}
+IDs <- rep(Simm$ID, each=249)
+intervals <- as.data.frame(cbind(IDs, intervals))
+intervals <- intervals %>% rename("ID"="IDs")
+```
+
+Join Simm and intervals
+```{r}
+Simm <- left_join(intervals, Simm, by="ID")
+```
+
+Determine if event occurred during interval
+```{r}
+Simm <- Simm %>% mutate(event=if_else((days_DeathTxCensor>=start & days_DeathTxCensor<=end), 1, 0))
+```
+
+Now will add date intervals for 5yr start and end times)
+```{r}
+Simm <- Simm %>% mutate(end_5yr=(dx_date + days(end)))
+Simm <- Simm %>% mutate(start_5yr=(end_5yr - days(1826)))
+```
+
+Now need to remove any rows where end_5yr is > date_DeathTxCensor (Amanda indicated need to remove rows where start_5yr > date_DeathTxCensor, but I don't think this is correct because then we'd be assigning exposures to patients where they were alive/not transplanted for <5yrs for that exposure - need to double check with her)
+```{r}
+Simm <- Simm %>% filter(!(end_5yr>DeathTxCensor_date & event!=1))
+```
+
+
+
+# Simmons - Creating Time-Weighted Intervals of Exposures
+```{r}
+SO4 <- SO4 %>% mutate(start=as.IDate(SO4_date))
+SO4 <- SO4 %>% mutate(end=as.IDate(SO4_date + months(1) - days(1)))
+SO4 <- as.data.table(SO4)
+str(SO4)
+```
+
+Creating a list of intervals we want to calculate exposures for:
+```{r}
+Simm_intervals <- Simm %>% dplyr::select(ID, start_5yr, end_5yr)
+Simm_intervals <- Simm_intervals %>% mutate_at(c("start_5yr", "end_5yr"), as.IDate)
+Simm_intervals <- Simm_intervals %>% rename(c("start"="start_5yr", "end"="end_5yr"))
+Simm_intervals <- as.data.table(Simm_intervals)
+str(Simm_intervals)
+```
+
+```{r}
+SO4_5yrWtedAvg <- intervalaverage(x=SO4,
+                y=Simm_intervals,
+                interval_vars=c("start","end"),
+                value_vars=c("value"),
+                group_vars="ID",
+                required_percentage = 0.01)
+```
+So this produces a row for each interval for each patient
+
+Select only the necessary columns, but will keep the original dataframe to interrogate data missingess if needed
+```{r}
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvg %>% dplyr::select(ID, value, start, end)
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvgx %>% rename("SO4"="value", "start_5yr"="start", "end_5yr"="end")
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvgx %>% mutate_at(c("start_5yr", "end_5yr"), as.Date)
+str(SO4_5yrWtedAvgx)
+```
+
+Join to Simm
+```{r}
+Simm <- left_join(Simm, SO4_5yrWtedAvgx, by=c("ID", "start_5yr", "end_5yr"))
+```
+
+
+# PFF - Importing Datasets
+Here I am importing the file which contains monthly SO4 level estimates by satellite at nearest lon/lat to PFF patient residential addresses. These are linked to the patient ID.
+```{r}
+outfile1 <- here("MonthlySO4Data/PFF_fILD_2000_2017_SO4_2021_11_05.xlsx")
+SO4 <- read_excel(outfile1)
+```
+
+Match up SO4 ID to SSID from matching file
+```{r}
+outfile2 <- here("MonthlySO4Data/PFF_fILD_PM25_BaselineData_2021_10_20.xlsx")
+SO4x <- read_excel(outfile2)
+SO4x <- SO4x %>% dplyr::select(ID, SSID)
+```
+
+Merge SO4 and SO4
+```{r}
+SO4 <- left_join(SO4, SO4x, by="ID")
+```
+
+
+Here I am importing the file containing the complete baseline clinical and demographic data for 1905 PFF patients
+```{r}
+outfile3 <- here("PFF_fILDPts_BaselineData_ConsentDateReference_2022_08_01.xlsx")
+PFF <- read_excel(outfile3)
+```
+
+# PFF - Merging Datasets
+I used a inner_join here so that the complete "PFF" dataframe only includes patients with fILD that have all baseline demographics and SO4 data.
+```{r}
+str(PFF$ID)
+PFF <- inner_join(PFF, SO4, by=c("SSID"))
+```
+This results in 1905 complete records
+
+Reorder so "ID" is the first column
+```{r}
+PFF <- PFF %>% dplyr::select(ID, everything(.))
+```
+
+# PFF - Making dx_yr column
+```{r}
+PFF <- PFF %>% 
+  mutate(dx_yr = format(as.Date(PFF$dx_date, format="%Y-%m-%d"),"%Y"))
+PFF$dx_yr <- as.numeric(PFF$dx_yr)
+```
+
+# PFF - Creating Site Variable
+```{r}
+PFF$site <- substr(PFF$SSID, 1,3)
+PFF$site <- as.factor(PFF$site)
+str(PFF$site)
+```
+
+
+
+# PFF - Simplifying SO4 Dataframe
+Reorder so "ID" is the first column
+```{r}
+SO4 <- SO4 %>% dplyr::select(ID, everything(.))
+SO4 <- SO4 %>% dplyr::select(!SSID)
+```
+
+```{r}
+SO4 <- SO4 %>% dplyr::select(!c(nrow, dist, lon, lat))
+colnames(SO4)
+```
+
+```{r}
+SO4 <- SO4 %>% 
+  pivot_longer(cols=c(2:217), names_to="SO4_date", names_prefix="SO4_")
+```
+
+```{r}
+SO4x <- SO4 
+SO4x$SO4_date <- gsub("jan", "01-01-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("feb", "01-02-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("mar", "01-03-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("apr", "01-04-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("may", "01-05-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("jun", "01-06-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("jul", "01-07-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("aug", "01-08-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("sep", "01-09-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("oct", "01-10-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("nov", "01-11-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("dec", "01-12-20", SO4x$SO4_date)
+
+SO4x$SO4_date <- format(as.Date(SO4x$SO4_date, format="%d-%m-%Y"),"%Y-%m-%d")
+SO4x$SO4_date <- as.Date(SO4x$SO4_date)
+SO4 <- SO4x
+rm(SO4x)
+```
+
+
+# PFF - Simplifying PFF Dataframe
+## PFF - Death/Transplant/Censor Date
+Extracting year of diagnosis and year of death/transplant/censoring
+```{r}
+#Start with the year of diagnosis
+PFF <- PFF %>% 
+  mutate(dx_yrmo = format(as.Date(PFF$dx_date, format="%Y-%m-%d"),"%Y-%m"))
+PFF <- PFF %>% 
+  mutate(dx_yr = format(as.Date(PFF$dx_date, format="%Y-%m-%d"),"%Y"))
+PFF$dx_yr <- as.numeric(PFF$dx_yr)
+
+#Then the year of death or lung transplant
+PFF <- PFF %>% 
+  mutate(deathORtx_date = if_else(!is.na(tx_date), tx_date, death_date))
+PFF <- PFF %>% 
+  mutate(deathORtx_yrmo = format(as.Date(PFF$deathORtx_date, format="%Y-%m-%d"),"%Y-%m"))
+
+#Then the year the records were last updated (i.e. year of censoring)
+PFF <- PFF %>% 
+  mutate(DeathTxCensor_date = if_else(!is.na(deathORtx_date), deathORtx_date, censor_date))
+PFF <- PFF %>% 
+  mutate(censor_yrmo = format(as.Date(PFF$DeathTxCensor_date, format="%Y-%m-%d"),"%Y-%m"))
+```
+
+## PFF - Removing Unnecessary Columns and Correcting Dates
+```{r}
+PFF <- PFF %>% dplyr::select(c(ID, site, age_dx, sex, smokeHx, race, dich_Race, pct_belowpoverty, dx_group, dx, dx_date, death_date, tx_date, DeathTxCensor_date, censor_date, fvc_date, dlco_date, fvc_pct, dlco_pct, status, deadORtx, time_DeathTxCensor, dx_yr))
+PFF <- PFF %>% 
+  mutate_at(c("death_date", "censor_date", "tx_date", "dx_date", "fvc_date", "dlco_date", "DeathTxCensor_date"), as.Date)
+str(PFF)
+```
+
+## PFF - Correcting Smoking
+Need to correct smoking variables
+```{r}
+PFF$smokeHx <- as.character(PFF$smokeHx) 
+PFF <- PFF %>% mutate(smokeHx1=if_else(is.na(smokeHx), "Unknown", smokeHx))
+
+```
+
+Now need to remove old smoking variables and rename new ones
+```{r}
+PFF <- PFF %>% dplyr::select(-c(smokeHx))
+PFF <- PFF %>% rename(c("smokeHx"="smokeHx1"))
+PFF$smokeHx <- as.factor(PFF$smokeHx)
+PFF$smokeHx <- fct_relevel(PFF$smokeHx, c("Never","Ever","Unknown"))
+```
+
+## PFF - Correcting Factors
+Need to correct other factor variables
+```{r}
+PFF$sex <- fct_relevel(PFF$sex, c("Male","Female"))
+PFF$race <- fct_relevel(PFF$race, c("W","B","A","N","U"))
+PFF$dich_Race <- fct_relevel(PFF$dich_Race, c("White","Non-White"))
+PFF$dx <- fct_relevel(PFF$dx, c("IPF"))
+PFF$dx_group <- fct_relevel(PFF$dx_group, c("IPF"))
+PFF <- PFF %>% mutate_at(c("status", "site"), as.factor)
+```
+
+## PFF - Creating New Variables
+### PFF - IPF vs Other Diagnosis
+```{r}
+PFF <- PFF %>% mutate(dx_IPF=ifelse(dx=="IPF", "IPF", "not_IPF"))  
+PFF$dx_IPF <- fct_relevel(PFF$dx_IPF, c("IPF"))
+```
+
+### PFF - Disadvantage Distribution
+Creating this empirical cumulative distribution will allow us to combine the analyses of all three cohorts even though the measurements for disadvantage are different between the three.
+```{r}
+plot(ecdf(PFF$pct_belowpoverty))
+PFF$disadv <- ecdf(PFF$pct_belowpoverty)(PFF$pct_belowpoverty)
+```
+
+# PFF - Modifying PFF Dataset
+Take down PFF dataset to the 1905 patients with complete data
+```{r}
+IDs <- as.data.table(unique(SO4$ID))
+IDs <- IDs %>% rename("ID"="V1")
+PFF <- left_join(IDs, PFF, by="ID")
+```
+
+
+```{r}
+PFF <- PFF %>% mutate(days_DeathTxCensor=(time_DeathTxCensor*365.25))
+```
+Longest time_DeathTxCensor= 1848days
+
+30-day longest time interval would be 1860 days
+```{r}
+start <- seq(1, 1831, by = 30)
+start
+end <- seq(30, 1860, by = 30)
+end
+```
+
+Repeat the list of intervals 1905 times (number of patients in PFF)
+```{r}
+start <- rep(start, times=1905)
+end <- rep(end, times=1905)
+intervals <- as.data.frame(cbind(start, end))
+```
+
+Add ID column to intervals
+```{r}
+IDs <- rep(PFF$ID, each=62)
+intervals <- as.data.frame(cbind(IDs, intervals))
+intervals <- intervals %>% rename("ID"="IDs")
+```
+
+Join PFF and intervals
+```{r}
+PFF <- left_join(intervals, PFF, by="ID")
+```
+
+Determine if event occurred during interval
+```{r}
+PFF <- PFF %>% mutate(event=if_else((days_DeathTxCensor>=start & days_DeathTxCensor<=end), 1, 0))
+```
+
+Now will add date intervals for 5yr start and end times)
+```{r}
+PFF <- PFF %>% mutate(end_5yr=(dx_date + days(end)))
+PFF <- PFF %>% mutate(start_5yr=(end_5yr - days(1826)))
+```
+
+Now need to remove any rows where end_5yr is > date_DeathTxCensor (Amanda indicated need to remove rows where start_5yr > date_DeathTxCensor, but I don't think this is correct because then we'd be assigning exposures to patients where they were alive/not transplanted for <5yrs for that exposure - need to double check with her)
+```{r}
+PFF <- PFF %>% filter(!(end_5yr>DeathTxCensor_date & event!=1))
+```
+
+
+
+# PFF - Creating Time-Weighted Intervals of Exposures
+```{r}
+SO4 <- SO4 %>% mutate(start=as.IDate(SO4_date))
+SO4 <- SO4 %>% mutate(end=as.IDate(SO4_date + months(1) - days(1)))
+SO4 <- as.data.table(SO4)
+str(SO4)
+```
+
+Creating a list of intervals we want to calculate exposures for:
+```{r}
+PFF_intervals <- PFF %>% dplyr::select(ID, start_5yr, end_5yr)
+PFF_intervals <- PFF_intervals %>% mutate_at(c("start_5yr", "end_5yr"), as.IDate)
+PFF_intervals <- PFF_intervals %>% rename(c("start"="start_5yr", "end"="end_5yr"))
+PFF_intervals <- as.data.table(PFF_intervals)
+str(PFF_intervals)
+```
+
+```{r}
+SO4_5yrWtedAvg <- intervalaverage(x=SO4,
+                y=PFF_intervals,
+                interval_vars=c("start","end"),
+                value_vars=c("value"),
+                group_vars="ID",
+                required_percentage = 0.01)
+```
+So this produces a row for each interval for each patient
+
+Select only the necessary columns, but will keep the original dataframe to interrogate data missingess if needed
+```{r}
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvg %>% dplyr::select(ID, value, start, end)
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvgx %>% rename("SO4"="value", "start_5yr"="start", "end_5yr"="end")
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvgx %>% mutate_at(c("start_5yr", "end_5yr"), as.Date)
+str(SO4_5yrWtedAvgx)
+```
+
+Join to PFF
+```{r}
+PFF <- left_join(PFF, SO4_5yrWtedAvgx, by=c("ID", "start_5yr", "end_5yr"))
+```
+
+
+
+
+# CARE-PF - Importing CARE-PF Datasets
+Here I am importing the file which contains monthly SO4 level estimates by satellite at nearest lon/lat to CAREPF patient residential addresses. These are linked to the patient ID.
+```{r}
+outfile1 <- here("MonthlySO4Data/CARE_fILD_2000_2017_SO4_2021_11_05.xlsx")
+SO4 <- read_excel(outfile1)
+```
+
+Here I am importing the file which I used for my CIMD work that contains the baseline clinical and demographic data for patients who have CIMD
+```{r}
+outfile2 <- here("MonthlySO4Data/CAREPF_fILDPts_BaselineData_2021_10_22.xlsx")
+CARE <- read_excel(outfile2)
+```
+
+# CARE-PF - Simplifying SO4 Dataframe
+```{r}
+SO4 <- SO4 %>% dplyr::select(!c(nrow, dist, lon, lat))
+colnames(SO4)
+```
+
+```{r}
+SO4 <- SO4 %>% 
+  pivot_longer(cols=c(2:217), names_to="SO4_date", names_prefix="SO4_")
+```
+
+```{r}
+SO4x <- SO4 
+SO4x$SO4_date <- gsub("jan", "01-01-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("feb", "01-02-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("mar", "01-03-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("apr", "01-04-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("may", "01-05-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("jun", "01-06-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("jul", "01-07-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("aug", "01-08-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("sep", "01-09-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("oct", "01-10-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("nov", "01-11-20", SO4x$SO4_date)
+SO4x$SO4_date <- gsub("dec", "01-12-20", SO4x$SO4_date)
+
+SO4x$SO4_date <- format(as.Date(SO4x$SO4_date, format="%d-%m-%Y"),"%Y-%m-%d")
+SO4x$SO4_date <- as.Date(SO4x$SO4_date)
+SO4 <- SO4x
+rm(SO4x)
+```
+
+
+# CARE-PF - Simplifying CARE Dataframe
+## CARE-PF - Death/Transplant/Censor Date
+Extracting year of diagnosis and year of death/transplant/censoring
+```{r}
+#Start with the year of diagnosis
+CARE <- CARE %>% 
+  mutate(dx_yrmo = format(as.Date(CARE$dx_date, format="%Y-%m-%d"),"%Y-%m"))
+CARE <- CARE %>% 
+  mutate(dx_yr = format(as.Date(CARE$dx_date, format="%Y-%m-%d"),"%Y"))
+CARE$dx_yr <- as.numeric(CARE$dx_yr)
+
+#Then the year of death or lung transplant
+CARE <- CARE %>% 
+  mutate(deathORtx_date = if_else(!is.na(tx_date), tx_date, death_date))
+CARE <- CARE %>% 
+  mutate(deathORtx_yrmo = format(as.Date(CARE$deathORtx_date, format="%Y-%m-%d"),"%Y-%m"))
+
+#Then the year the records were last updated (i.e. year of censoring)
+CARE <- CARE %>% 
+  mutate(DeathTxCensor_date = if_else(!is.na(deathORtx_date), deathORtx_date, last_updated))
+CARE <- CARE %>% 
+  mutate(censor_yrmo = format(as.Date(CARE$DeathTxCensor_date, format="%Y-%m-%d"),"%Y-%m"))
+```
+
+## CARE-PF - Removing Unnecessary Columns and Correcting Dates
+```{r}
+CARE <- CARE %>% dplyr::select(c(ID, site, age_dx, sex, smokeHx, dich_smoking, race, dich_Race, avg_s, dx_group, dx, dob, dx_date, death_date, tx_date, DeathTxCensor_date, last_updated, pft_date, fvc_pct, dlco_pct, pft_timefromdx, status, died, txed, deadORtx, time_DeathTxCensor, dx_yr))
+CARE <- CARE %>% 
+  mutate_at(c("dob","death_date", "last_updated", "tx_date", "dx_date", "pft_date", "DeathTxCensor_date"), as.Date)
+str(CARE)
+```
+
+## CARE-PF - Correcting Smoking
+Need to correct smoking variables
+```{r}
+CARE$smokeHx <- as.character(CARE$smokeHx) 
+CARE <- CARE %>% mutate(smokeHx1=if_else(is.na(smokeHx), "Unknown", smokeHx))
+
+#now need to make new dich_smoking category
+CARE$dich_smoking <- as.character(CARE$dich_smoking) 
+CARE <- CARE %>% mutate(dich_smoking1=if_else(is.na(dich_smoking),"Unknown", dich_smoking))
+```
+
+Now need to remove old smoking variables and rename new ones
+```{r}
+CARE <- CARE %>% dplyr::select(-c(smokeHx, dich_smoking))
+CARE <- CARE %>% rename(c("smokeHx"="smokeHx1", "dich_smoking"="dich_smoking1"))
+CARE$smokeHx <- as.factor(CARE$smokeHx)
+CARE$dich_smoking <- as.factor(CARE$dich_smoking)
+CARE$smokeHx <- fct_relevel(CARE$smokeHx, c("Never","Former","Always","Unknown"))
+CARE$dich_smoking <- fct_relevel(CARE$dich_smoking, c("Never","Ever","Unknown"))
+```
+
+## CARE-PF - Correcting Factors
+Need to correct other factor variables
+```{r}
+CARE$sex <- fct_relevel(CARE$sex, c("M","F"))
+CARE$race <- fct_relevel(CARE$race, c("W","B","A","N","U"))
+CARE$dich_Race <- fct_relevel(CARE$dich_Race, c("White","Non-White"))
+CARE$dx <- fct_relevel(CARE$dx, c("IPF"))
+CARE$dx_group <- fct_relevel(CARE$dx_group, c("IPF"))
+CARE <- CARE %>% mutate_at(c("status","died", "txed", "deadORtx", "site"), as.factor)
+```
+
+## CARE-PF - Creating New Variables
+### CARE-PF - IPF vs Other Diagnosis
+```{r}
+CARE <- CARE %>% mutate(dx_IPF=ifelse(dx=="IPF", "IPF", "not_IPF"))  
+CARE$dx_IPF <- fct_relevel(CARE$dx_IPF, c("IPF"))
+```
+
+### CARE-PF - Disadvantage Distribution
+Creating this empirical cumulative distribution will allow us to combine the analyses of all three cohorts even though the measurements for disadvantage are different between the three.
+```{r}
+plot(ecdf(CARE$avg_s))
+CARE$disadv <- ecdf(CARE$avg_s)(CARE$avg_s)
+```
+
+# CARE-PF - Modifying CARE Dataset
+Take down CARE dataset to the 3389 patients with complete data
+```{r}
+IDs <- as.data.table(unique(SO4$ID))
+IDs <- IDs %>% rename("ID"="V1")
+CARE <- left_join(IDs, CARE, by="ID")
+```
+
+
+```{r}
+CARE <- CARE %>% mutate(days_DeathTxCensor=(time_DeathTxCensor*365.25))
+```
+Longest time_DeathTxCensor= 9546days
+
+30-day longest time interval would be 9570 days
+```{r}
+start <- seq(1, 9541, by = 30)
+start
+end <- seq(30, 9570, by = 30)
+end
+```
+
+Repeat the list of intervals 3389 times (number of patients in CARE)
+```{r}
+start <- rep(start, times=3389)
+end <- rep(end, times=3389)
+intervals <- as.data.frame(cbind(start, end))
+```
+
+Add ID column to intervals
+```{r}
+IDs <- rep(CARE$ID, each=319)
+intervals <- as.data.frame(cbind(IDs, intervals))
+intervals <- intervals %>% rename("ID"="IDs")
+```
+
+Join CARE and intervals
+```{r}
+CARE <- left_join(intervals, CARE, by="ID")
+```
+
+Determine if event occurred during interval
+```{r}
+CARE <- CARE %>% mutate(event=if_else((days_DeathTxCensor>=start & days_DeathTxCensor<=end), 1, 0))
+```
+
+Now will add date intervals for 5yr start and end times)
+```{r}
+CARE <- CARE %>% mutate(end_5yr=(dx_date + days(end)))
+CARE <- CARE %>% mutate(start_5yr=(end_5yr - days(1826)))
+```
+
+Now need to remove any rows where end_5yr is > date_DeathTxCensor (Amanda indicated need to remove rows where start_5yr > date_DeathTxCensor, but I don't think this is correct because then we'd be assigning exposures to patients where they were alive/not transplanted for <5yrs for that exposure - need to double check with her)
+```{r}
+CARE <- CARE %>% filter(!(end_5yr>DeathTxCensor_date & event!=1))
+```
+
+
+
+# CARE-PF - Creating Time-Weighted Intervals of Exposures
+```{r}
+SO4 <- SO4 %>% mutate(start=as.IDate(SO4_date))
+SO4 <- SO4 %>% mutate(end=as.IDate(SO4_date + months(1) - days(1)))
+SO4 <- as.data.table(SO4)
+str(SO4)
+```
+
+Creating a list of intervals we want to calculate exposures for:
+```{r}
+CARE_intervals <- CARE %>% dplyr::select(ID, start_5yr, end_5yr)
+CARE_intervals <- CARE_intervals %>% mutate_at(c("start_5yr", "end_5yr"), as.IDate)
+CARE_intervals <- CARE_intervals %>% rename(c("start"="start_5yr", "end"="end_5yr"))
+CARE_intervals <- as.data.table(CARE_intervals)
+str(CARE_intervals)
+```
+
+```{r}
+SO4_5yrWtedAvg <- intervalaverage(x=SO4,
+                y=CARE_intervals,
+                interval_vars=c("start","end"),
+                value_vars=c("value"),
+                group_vars="ID",
+                required_percentage = 0.01)
+```
+So this produces a row for each interval for each patient
+
+Select only the necessary columns, but will keep the original dataframe to interrogate data missingess if needed
+```{r}
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvg %>% dplyr::select(ID, value, start, end)
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvgx %>% rename("SO4"="value", "start_5yr"="start", "end_5yr"="end")
+SO4_5yrWtedAvgx <- SO4_5yrWtedAvgx %>% mutate_at(c("start_5yr", "end_5yr"), as.Date)
+str(SO4_5yrWtedAvgx)
+```
+
+Join to CARE
+```{r}
+CARE <- left_join(CARE, SO4_5yrWtedAvgx, by=c("ID", "start_5yr", "end_5yr"))
+```
+
+
+# Remove unnecessary dataframes
+```{r}
+rm(CARE_intervals, intervals, PFF_intervals, SO4, SO4_5yrWtedAvg, SO4_5yrWtedAvgx, SO4, Simm_intervals, end, start, IDs)
+```
+
+# Make Dichotomized SO4 Cutpoints
+```{r}
+Simm$SO4_dich <- cut(Simm$SO4,
+                      breaks=c(0, 1.04, 100),
+                      labels=c("Low", "High"))
+summary(Simm$SO4_dich)
+class(Simm$SO4_dich)
+str(Simm$SO4_dich)
+```
+
+```{r}
+PFF$SO4_dich <- cut(PFF$SO4,
+                      breaks=c(0, 1.04, 100),
+                      labels=c("Low", "High"))
+summary(PFF$SO4_dich)
+class(PFF$SO4_dich)
+str(PFF$SO4_dich)
+```
+
+```{r}
+CARE$SO4_dich <- cut(CARE$SO4,
+                      breaks=c(0, 1.04, 100),
+                      labels=c("Low", "High"))
+summary(CARE$SO4_dich)
+class(CARE$SO4_dich)
+str(CARE$SO4_dich)
+```
+
+# Combine all into one dataframe
+```{r}
+colnames(Simm)
+colnames(PFF)
+colnames(CARE)
+```
+
+```{r}
+Simm <- Simm %>% mutate(site=1)
+Simm <- Simm %>% mutate(dlco_date=pft_date)
+Simm <- Simm %>% rename(c("fvc_date"="pft_date"))
+Simm <- Simm %>% dplyr::select(ID, start, end, site, age_dx, sex, race, dich_Race, smokeHx, dx_IPF, disadv, dx_group, dx, dx_yr, dx_date, death_date, tx_date, DeathTxCensor_date, last_updated, fvc_date, dlco_date, fvc_pct, dlco_pct, status, deadORtx, time_DeathTxCensor, days_DeathTxCensor, event, start_5yr, end_5yr, SO4, SO4_dich)
+```
+
+```{r}
+PFF <- PFF %>% rename(c("last_updated"="censor_date"))
+PFF <- PFF %>% dplyr::select(ID, start, end, site, age_dx, sex, race, dich_Race, smokeHx, dx_IPF, disadv, dx_group, dx, dx_yr, dx_date, death_date, tx_date, DeathTxCensor_date, last_updated, fvc_date, dlco_date, fvc_pct, dlco_pct, status, deadORtx, time_DeathTxCensor, days_DeathTxCensor, event, start_5yr, end_5yr, SO4, SO4_dich)
+```
+
+```{r}
+CARE <- CARE %>% mutate(dlco_date=pft_date)
+CARE <- CARE %>% rename(c("fvc_date"="pft_date"))
+CARE <- CARE %>% dplyr::select(ID, start, end, site, age_dx, sex, race, dich_Race, smokeHx, dx_IPF, disadv, dx_group, dx, dx_yr, dx_date, death_date, tx_date, DeathTxCensor_date, last_updated, fvc_date, dlco_date, fvc_pct, dlco_pct, status, deadORtx, time_DeathTxCensor, days_DeathTxCensor, event, start_5yr, end_5yr, SO4, SO4_dich)
+```
+
+
+
+# Survival Models
+## SO4 Continuous
+### Undajusted (except dx_yr and site)
+Simmons
+```{r}
+coxPH_model1 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + site, data=Simm, id=ID)
+summary(coxPH_model1)
+```
+
+PFF
+```{r}
+coxPH_model1 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + site, data=PFF, id=ID)
+summary(coxPH_model1)
+```
+
+CARE-PF
+```{r}
+coxPH_model1 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + site, data=CARE, id=ID)
+summary(coxPH_model1)
+```
+
+
+### Fully-Adjusted
+Simmons
+```{r}
+coxPH_model2 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + age_dx + sex + dich_Race + smokeHx + disadv + site, data=Simm, id=ID)
+summary(coxPH_model2)
+```
+
+PFF
+```{r}
+coxPH_model2 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + age_dx + sex + dich_Race + smokeHx + disadv + site, data=PFF, id=ID)
+summary(coxPH_model2)
+```
+
+CARE-PF
+```{r}
+coxPH_model2 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + age_dx + sex + dich_Race + smokeHx + disadv + site, data=CARE, id=ID)
+summary(coxPH_model2)
+```
+
+
+### Variable HR for SO4 Continuous
+Want a plot with x-axis of SO4 level and y-axis of HR - unsure if it makes sense to use these plots for the time-weighted exposure approach we have here.
+
+Unadjusted model + dx_yr + site
+```{r}
+#First need to make dataframe that only includes patients with time_DeathTxCensor
+Simmx <- Simm %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(site))
+PFFx <- PFF %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(site))
+CAREx <- CARE %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(site))
+
+#Then make survival function
+surv1 <- Surv(Simmx$start, Simmx$end, Simmx$event==1)
+fit1 <- coxph(surv1 ~ pspline(Simmx$SO4, df=3) + Simmx$dx_yr + Simmx$site)
+predicted1 <- predict(fit1, type="terms", se.fit=T, terms=1)
+
+surv2 <- Surv(PFFx$start, PFFx$end, PFFx$event==1)
+fit2 <- coxph(surv2 ~ pspline(PFFx$SO4, df=3) + PFFx$dx_yr + PFFx$site)
+predicted2 <- predict(fit2, type="terms", se.fit=T, terms=1)
+
+surv3 <- Surv(CAREx$start, CAREx$end, CAREx$event==1)
+fit3 <- coxph(surv3 ~ pspline(CAREx$SO4, df=3) + CAREx$dx_yr + CAREx$site)
+predicted3 <- predict(fit3, type="terms", se.fit=T, terms=1)
+```
+
+```{r}
+#Then plot
+plot(Simmx$SO4, exp(predicted1$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit)), col = "darkgoldenrod1", lty = 1 )
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit + 1.96 * predicted1$se)), col = "lightgoldenrod1", lty = 2 )
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit - 1.96 * predicted1$se)), col = "lightgoldenrod1", lty = 2 )
+
+plot(PFFx$SO4, exp(predicted2$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit)), col = "royalblue1", lty = 1)
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit + 1.96 * predicted2$se)), col = "steelblue1", lty = 2 )
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit - 1.96 * predicted2$se)), col = "steelblue1", lty = 2 )
+
+plot(CAREx$SO4, exp(predicted3$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit)), col = "firebrick1", lty = 1)
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit + 1.96 * predicted3$se)), col = "coral1", lty = 2 )
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit - 1.96 * predicted3$se)), col = "coral1", lty = 2 )
+```
+
+Complete model + dx_yr
+```{r}
+#First need to make dataframe that only includes patients with time_DeathTxCensor
+Simmx <- Simm %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(disadv) & !is.na(site))
+PFFx <- PFF %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(disadv) & !is.na(site))
+CAREx <- CARE %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(disadv) & !is.na(site))
+
+#Then make survival function
+surv1 <- Surv(Simmx$start, Simmx$end, Simmx$event==1)
+fit1 <- coxph(surv1 ~ pspline(Simmx$SO4, df=3) + Simmx$dx_yr + Simmx$age_dx + Simmx$sex + Simmx$smokeHx + Simmx$dich_Race + Simmx$disadv + Simmx$site)
+predicted1 <- predict(fit1, type="terms", se.fit=T, terms=1)
+
+surv2 <- Surv(PFFx$start, PFFx$end, PFFx$event==1)
+fit2 <- coxph(surv2 ~ pspline(PFFx$SO4, df=3) + PFFx$dx_yr + PFFx$age_dx + PFFx$sex + PFFx$smokeHx + PFFx$dich_Race + PFFx$disadv + PFFx$site)
+predicted2 <- predict(fit2, type="terms", se.fit=T, terms=1)
+
+surv3 <- Surv(CAREx$start, CAREx$end, CAREx$event==1)
+fit3 <- coxph(surv3 ~ pspline(CAREx$SO4, df=3) + CAREx$dx_yr + CAREx$age_dx + CAREx$sex + CAREx$smokeHx + CAREx$dich_Race + CAREx$disadv + CAREx$site)
+predicted3 <- predict(fit3, type="terms", se.fit=T, terms=1)
+```
+
+```{r}
+#Then plot
+plot(Simmx$SO4, exp(predicted1$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit)), col = "darkgoldenrod1", lty = 1 )
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit + 1.96 * predicted1$se)), col = "lightgoldenrod1", lty = 2 )
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit - 1.96 * predicted1$se)), col = "lightgoldenrod1", lty = 2 )
+
+plot(PFFx$SO4, exp(predicted2$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit)), col = "royalblue1", lty = 1)
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit + 1.96 * predicted2$se)), col = "steelblue1", lty = 2 )
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit - 1.96 * predicted2$se)), col = "steelblue1", lty = 2 )
+
+plot(CAREx$SO4, exp(predicted3$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit)), col = "firebrick1", lty = 1)
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit + 1.96 * predicted3$se)), col = "coral1", lty = 2 )
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit - 1.96 * predicted3$se)), col = "coral1", lty = 2 )
+```
+
+
+```{r}
+#Then plot superimposed
+plot(Simmx$SO4, exp(predicted1$fit), type="n", xlim=c(0,6), ylim=c(0,3))
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit)), col = "darkgoldenrod1", lty = 1 )
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit + 1.96 * predicted1$se)), col = "lightgoldenrod1", lty = 2 )
+lines(sm.spline(Simmx$SO4, exp(predicted1$fit - 1.96 * predicted1$se)), col = "lightgoldenrod1", lty = 2 )
+
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit)), col = "royalblue1", lty = 1)
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit + 1.96 * predicted2$se)), col = "steelblue1", lty = 2 )
+lines(sm.spline(PFFx$SO4, exp(predicted2$fit - 1.96 * predicted2$se)), col = "steelblue1", lty = 2 )
+
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit)), col = "firebrick1", lty = 1)
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit + 1.96 * predicted3$se)), col = "coral1", lty = 2 )
+lines(sm.spline(CAREx$SO4, exp(predicted3$fit - 1.96 * predicted3$se)), col = "coral1", lty = 2 )
+```
+
+
+
+
+# Combining Cohorts
+```{r}
+colnames(Simm)==colnames(PFF)
+colnames(PFF)==colnames(CARE)
+```
+
+## Creating Cohort Column
+```{r}
+Simm <- Simm %>% mutate(cohort="Simmons")
+PFF <- PFF %>% mutate(cohort="PFF")
+CARE <- CARE %>% mutate(cohort="CARE-PF")
+```
+
+## Fixing Columns in PFF
+Fixing sex
+```{r}
+PFF <- PFF %>% mutate(sex1=if_else(sex=="Male", "M", "F"))
+PFF <- PFF %>% dplyr::select(!sex)
+PFF <- PFF %>% rename(c("sex"="sex1"))
+PFF <- PFF %>% dplyr::select(ID, start, end, site, age_dx, sex, race, dich_Race, smokeHx, dx_IPF, disadv, dx_group, dx, dx_yr, dx_date, death_date, tx_date, DeathTxCensor_date, last_updated, fvc_date, dlco_date, fvc_pct, dlco_pct, status, deadORtx, time_DeathTxCensor, days_DeathTxCensor, event, start_5yr, end_5yr, SO4, SO4_dich, cohort)
+```
+
+Fixing ID - some of the IDs are shared between PFF and Simm
+```{r}
+#First want to check how many IDs are shared between Simm and PFF, Simm and CARE, and PFF and CARE
+intersect(Simm$ID, PFF$ID)
+intersect(Simm$ID, CARE$ID)
+intersect(CARE$ID, PFF$ID)
+
+PFF$ID <- paste0(2000, PFF$ID)
+intersect(Simm$ID, PFF$ID)
+```
+No overlaps between Simm/CARE or PFF/CARE, but two with Simm/PFF, so add "2000" to front of PFF IDs
+
+
+## Joining rows
+```{r}
+All <- rbind(Simm, PFF)
+All <- rbind(All, CARE)
+str(All)
+```
+
+## Correct Site and Cohort to Factors
+```{r}
+All$cohort <- as.factor(All$cohort)
+All$site <- as.factor(All$site)
+All$event <- as.factor(All$event)
+```
+
+
+# One-Stage Meta-Analysis
+## Continuous Models
+```{r}
+coxPH_model1 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + site + cluster(cohort), data=All, id=ID)
+summary(coxPH_model1)
+```
+
+```{r}
+coxPH_model2 <- coxph(Surv(start, end, event==1) ~ SO4 + dx_yr + age_dx + sex + dich_Race + smokeHx + disadv + site + cluster(cohort), data=All, id=ID)
+summary(coxPH_model2)
+```
+
+## Variable HR Spline Models
+Base model
+```{r}
+#First need to make dataframe that only includes patients with a value for event
+Allx <- All %>% filter(!is.na(SO4) & !is.na(start) & !is.na(end) & !is.na(event) & !is.na(dx_yr) & !is.na(cohort) & !is.na(site))
+
+#Then make survival function
+surv1 <- Surv(Allx$start, Allx$end, Allx$event==1)
+fit1 <- coxph(surv1 ~ pspline(Allx$SO4, df=3) + Allx$dx_yr + cluster(Allx$cohort) + Allx$site)
+predicted <- predict(fit1, type="terms", se.fit=T, terms=1)
+```
+
+```{r}
+#Then plot
+plot(Allx$SO4, exp(predicted$fit), type="n", xlim=c(0,6), ylim=c(0,10))
+lines(sm.spline(Allx$SO4, exp(predicted$fit)), col = "red" , lty = 1 )
+lines(sm.spline(Allx$SO4, exp(predicted$fit + 1.96 * predicted$se)), col = "orange" , lty = 2 )
+lines(sm.spline(Allx$SO4, exp(predicted$fit - 1.96 * predicted$se)), col = "orange" , lty = 2 )
+```
+
+Complete model
+```{r}
+#First need to make dataframe that only includes patients with time_DeathTxCensor
+Allx <- All %>% filter(!is.na(SO4) & !is.na(time_DeathTxCensor) & !is.na(dx_yr) & !is.na(time_DeathTxCensor) & !is.na(age_dx) & !is.na(sex) & !is.na(smokeHx) & !is.na(dich_Race) & !is.na(disadv) & !is.na(site))
+
+#Then make survival function
+surv1 <- Surv(Allx$start, Allx$end, Allx$event==1)
+fit1 <- coxph(surv1 ~ pspline(Allx$SO4, df=3) + Allx$dx_yr + Allx$age_dx + Allx$sex + Allx$smokeHx + Allx$dich_Race + Allx$disadv + cluster(Allx$cohort) + Allx$site)
+predicted <- predict(fit1, type="terms", se.fit=T, terms=1)
+```
+
+```{r}
+#Then plot
+plot(Allx$SO4, exp(predicted$fit), type="n", xlim=c(0,6), ylim=c(0,10))
+lines(sm.spline(Allx$SO4, exp(predicted$fit)), col = "red" , lty = 1 )
+lines(sm.spline(Allx$SO4, exp(predicted$fit + 1.96 * predicted$se)), col = "orange" , lty = 2 )
+lines(sm.spline(Allx$SO4, exp(predicted$fit - 1.96 * predicted$se)), col = "orange" , lty = 2 )
+```
+
