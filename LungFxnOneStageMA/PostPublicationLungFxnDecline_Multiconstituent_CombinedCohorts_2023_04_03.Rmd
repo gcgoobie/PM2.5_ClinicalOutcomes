@@ -1,0 +1,944 @@
+---
+title: "Post-Publication Combined Cohorts Lung Function Decline Analysis One-Stage Meta-Analysis"
+author: "Gillian Goobie"
+date: "2023_04_03"
+output: 
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(nnet)
+library(writexl) 
+library(knitr)
+library(lintr)
+library(psych)
+library(RColorBrewer)
+library(reticulate)
+library(survival)
+library(survminer)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+```
+
+
+# Uploading PFT Dataframes
+## Simmons
+```{r}
+#Need to import the correct sheet from the original Simmons file
+outfile1 <- here("Simmons_fILDPts_PFTs_2022_03_28.xlsx")
+Simm_pft <- read_excel(outfile1, na="")
+```
+
+### Correct formatting for Simm_pft dataframe
+```{r}
+Simm_pft <- Simm_pft %>% mutate_at(vars(pft_date, tx_date, dob, death_date, last_updated, dx_date, UPMC_lastvisit, Simmons_lastvisit, consent_date, first_pft_date), as.Date, format="%m/%d/%Y")
+str(Simm_pft)
+```
+
+### Create PFT ID variable
+This will make it easier to identify any cells with issues and replace them if needed
+```{r}
+Simm_pft <- Simm_pft %>% mutate(pft_id=1:8639)
+```
+
+### Select Necessary PFT Columns
+```{r}
+Simm_pft <- Simm_pft %>% dplyr::select(ID, pft_date, fvc_pct, dlco_pct)
+str(Simm_pft)
+```
+
+### Make cohort column
+```{r}
+Simm_pft$cohort <- "Simmons"
+```
+
+
+## PFF
+```{r}
+#Need to import the correct sheet from the original PFF file
+outfile1 <- here("PFF_FormatData_2021_10_06.xlsx")
+PFF_FVC <- read_excel(outfile1, sheet="FVC", na="")
+
+PFF_DLCO <- read_excel(outfile1, sheet="DLCO", na="")
+```
+
+### Correct formatting for PFF_FVC dataframe
+```{r}
+PFF_FVC <- PFF_FVC %>% dplyr::select(SSID, TestDays, pctFVC)
+str(PFF_FVC)
+```
+
+### Correct formatting for DLCO dataframe
+```{r}
+PFF_DLCO <- PFF_DLCO %>% dplyr::select(SSID, TestDays, pctDLCOuncorr)
+str(PFF_DLCO)
+```
+
+### Get updated PFF ID
+I created a new ID for PFF that is only numbers that is distinct from CARE and Simmons IDs and allows us to get rid of the SSID
+```{r}
+outfile2 <- here("PFF_fILD_AllConstituentsMatched_2022_07_28.xlsx")
+PM_PFF <- read_excel(outfile2, na="")
+```
+
+```{r}
+PM_PFF$ID <- paste("11111", PM_PFF$ID, sep="")
+PM_PFF <- PM_PFF %>% dplyr::select(ID, SSID, consent_date)
+PM_PFF$consent_date <- as.Date(PM_PFF$consent_date)
+```
+
+### Make pft_date
+```{r}
+PFF_FVC <- right_join(PM_PFF, PFF_FVC, by="SSID")
+PFF_DLCO <- right_join(PM_PFF, PFF_DLCO, by="SSID")
+```
+
+```{r}
+PFF_FVC <- PFF_FVC %>% mutate(pft_date = as.Date(consent_date + lubridate::days(TestDays)))
+PFF_FVC <- PFF_FVC %>% rename("fvc_pct"="pctFVC")
+PFF_DLCO <- PFF_DLCO %>% mutate(pft_date = as.Date(consent_date + lubridate::days(TestDays)))
+PFF_DLCO <- PFF_DLCO %>% rename("dlco_pct"="pctDLCOuncorr")
+```
+
+### Remove PFTs that occurred >6mo before consent_date
+```{r}
+PFF_FVC <-  PFF_FVC %>% mutate(fvc_timefromcensor=(pft_date-consent_date)/365.25)
+PFF_FVC$fvc_timefromcensor <-  as.numeric(PFF_FVC$fvc_timefromcensor)
+summary(PFF_FVC$fvc_timefromcensor)
+PFF_FVC <- PFF_FVC %>% filter(fvc_timefromcensor>=-0.5)
+summary(PFF_FVC$fvc_timefromcensor)
+```
+
+```{r}
+PFF_DLCO <-  PFF_DLCO %>% mutate(dlco_timefromcensor=(pft_date-consent_date)/365.25)
+PFF_DLCO$dlco_timefromcensor <-  as.numeric(PFF_DLCO$dlco_timefromcensor)
+summary(PFF_DLCO$dlco_timefromcensor)
+PFF_DLCO <- PFF_DLCO %>% filter(dlco_timefromcensor>=-0.5)
+summary(PFF_DLCO$dlco_timefromcensor)
+```
+
+### Combine FVC and DLCO dataframes
+```{r}
+str(PFF_FVC)
+PFF_FVC <- PFF_FVC %>% dplyr::select(ID, pft_date, fvc_pct)
+str(PFF_DLCO)
+PFF_DLCO <- PFF_DLCO %>% dplyr::select(ID, pft_date, dlco_pct)
+```
+
+```{r}
+PFF_pft <- full_join(PFF_FVC, PFF_DLCO, by=c("ID","pft_date"))
+PFF_pft <- PFF_pft %>% filter(!is.na(ID))
+```
+
+### Make cohort column
+```{r}
+PFF_pft$cohort <- "PFF"
+```
+
+
+## CARE-PF
+```{r}
+#Need to import the correct sheet from the original Simmons file
+outfile1 <- here("CAREPF_AllPts_PFTs_2021_06_01.xlsx")
+CARE_pft <- read_excel(outfile1, na="")
+```
+
+### Correct formatting for pft dataframe
+```{r}
+CARE_pft <- CARE_pft %>% mutate_at(vars(pft_date, tx_date, dx_date), as.Date, format="%m/%d/%Y")
+```
+
+### dplyr::select Necessary PFT Columns
+```{r}
+CARE_pft <- CARE_pft %>% dplyr::select(ID, pft_date, fvc_pct, dlco_pct)
+str(CARE_pft)
+```
+
+### Make cohort column
+```{r}
+CARE_pft$cohort <- "CARE-PF"
+```
+
+## Make columns equivalent between cohorts
+```{r}
+str(Simm_pft)
+str(PFF_pft)
+str(CARE_pft)
+```
+
+```{r}
+pft <- rbind(Simm_pft, PFF_pft, CARE_pft)
+```
+
+
+# Uploading PM Dataframe
+Need to upload the file which only includes patients with fibrotic ILD
+```{r}
+outfile2 <- here("CombinedCohorts_5yrPreCensoringANDPreDxData_2023_04_03.xlsx")
+PM <- read_excel(outfile2, na="")
+```
+
+## Correct date format
+```{r}
+PM <- PM %>% mutate_at(vars(DeathTxCensor_date, tx_date), as.Date, format="%m/%d/%Y")
+str(PM)
+```
+
+## Correct Factor Variables and Levels
+```{r}
+PM <- PM %>% mutate_at(vars(cohort, site, dx_IPF, sex, race, dich_Race, smokeHx, status, deadORtx, dx, dx_group), as.factor)
+str(PM)
+```
+
+## Releveling Factors
+Here I am releveling factors so that they are in an intuitive order for my later analyses.
+```{r}
+PM$sex <- fct_relevel(PM$sex, c("M","F"))
+PM$race <- fct_relevel(PM$race, c("W","B","A","N","U"))
+PM$dich_Race <- fct_relevel(PM$dich_Race, c("White","Non-White"))
+PM$smokeHx <- fct_relevel(PM$smokeHx, c("Never","Former","Always","Unknown"))
+PM$site <- fct_relevel(PM$site, c("Simmons"))
+PM$cohort <- fct_relevel(PM$cohort, c("Simmons", "PFF", "CARE-PF"))
+
+#For dx and dx_group, I just want IPF to be first and then the rest of the categories are alphabetical
+PM$dx <- fct_relevel(PM$dx, c("IPF"))
+PM$dx_group <- fct_relevel(PM$dx_group, c("IPF"))
+str(PM)
+```
+
+
+# Remove PFTs that occurred after transplant
+Then will make a simpler dataframe that can be joined to pft
+```{r}
+txed <- PM %>% filter(txed==1) %>% dplyr::select(ID, tx_date)
+txed$ID <- as.numeric(txed$ID)
+str(txed)
+```
+
+Next will join txed to pft
+```{r}
+str(pft)
+pft$ID <- as.numeric(pft$ID)
+pft <- left_join(pft, txed, by="ID")
+
+#remove all pfts where pft_date>tx_date
+pft <- pft %>% filter(is.na(tx_date) | pft_date<tx_date)
+```
+
+# Remove PFT Values that Don't Make Sense
+There are some DLCO values that are too low that we need to remove. All the extremely high DLCOs have been removed that are incorrect and the remaining ones make sense.
+```{r}
+pft <- pft %>% filter(fvc_pct>=20 & fvc_pct<=150)
+summary(pft$fvc_pct)
+#FVCs look appropriate
+
+pft <- pft %>% filter(dlco_pct>=10 & dlco_pct<=150)
+summary(pft$dlco_pct)
+#DLCOs look appropriate
+```
+
+# Make PFT ID column
+```{r}
+pft$pft_id <- 1:35807
+```
+
+
+# Merge PFT Dataframe with PM dataframe
+Keep a simple pft dataframe
+```{r}
+pftx <- pft
+```
+
+
+```{r}
+PM$ID <- as.numeric(PM$ID)
+pft <- left_join(pft, PM, by=c("ID", "tx_date", "cohort"))
+str(pft)
+pft <- pft %>% rename("pft_date"="pft_date.x", "fvc_pct"="fvc_pct.x", "dlco_pct"="dlco_pct.x", "first_pft_date"="pft_date.y", "first_fvc_pct"="fvc_pct.y", "first_dlco_pct"="dlco_pct.y")
+pft$ID <- as.factor(pft$ID)
+str(pft)
+```
+
+## Create Time from First PFT Variable
+```{r}
+pft$first_pft_date <- as.Date(pft$first_pft_date)
+pft <- pft %>% mutate(time_firstPFT=(pft_date-first_pft_date)/365.25)
+pft$time_firstPFT <- as.numeric(pft$time_firstPFT)
+pft <- pft %>% filter(time_firstPFT>=0)
+summary(pft$time_firstPFT)
+#Now there are no negative time_firstPFTs
+summary(pft$fvc_pct)
+summary(pft$dlco_pct)
+#And the breakdowns of fvc_pct and dlco_pct make sense
+```
+
+
+## Descriptive Stats for FVC Decline
+```{r}
+#Look at the mean and total variance of fvc_pct
+pft %>% summarise(mean_fvc=mean(fvc_pct, na.rm=T))
+tot_var_fvc <- pft %>% dplyr::select(fvc_pct) %>% summarise(var_fvc_pct=var(fvc_pct, na.rm=T))
+tot_var_fvc
+
+#Look at the between subject variance
+bw_subj_var_fvc <- pft %>% group_by(ID) %>% mutate(mean_fvc_pct=mean(fvc_pct)) %>% ungroup() %>% summarise(bw_subj_var_fvc=var(mean_fvc_pct, na.rm=T))
+bw_subj_var_fvc
+
+fvc_ICC <- bw_subj_var_fvc/tot_var_fvc
+fvc_ICC
+```
+fvc_ICC=0.86 indicates that ~86% of the variance is between subject variance. I.e. there is more difference in fvc_pct between patients than within any single patient.
+
+## Number of PFTs
+```{r}
+n_pfts <- pft %>% count(ID)
+n_pfts
+summary(n_pfts$n)
+#This shows that the median # of PFTs is 4 and the mean is 6
+```
+Median number of PFTs 4 and mean is 5
+
+
+# Association between PM/Constituents in 5yrs Pre-Diagnosis and FVC Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of PM During Disease on FVC decline.
+
+## PM2.5
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*PM_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*PM_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+## SO4
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*SO4_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*SO4_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## NO3
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*NO3_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*NO3_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+
+## NH4
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## BC
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*BC_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*BC_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## OM
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*OM_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*OM_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## SS
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*SS_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*SS_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## Soil
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+# Association between PM/Constituents in 5yrs Pre-Censoring and FVC Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of PM During Disease on FVC decline.
+
+## PM2.5
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*PM_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*PM_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+## SO4
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*SO4_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*SO4_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## NO3
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*NO3_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*NO3_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+
+## NH4
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## BC
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*BC_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*BC_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## OM
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*OM_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*OM_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## SS
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*SS_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*SS_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+## Soil
+### Base Model
+```{r}
+FVC_lmer1 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer1)
+icc(FVC_lmer1)
+report(FVC_lmer1)
+```
+
+
+### Complete Model
+```{r}
+FVC_lmer2 <- lmer(fvc_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(FVC_lmer2)
+icc(FVC_lmer2)
+report(FVC_lmer2)
+```
+
+
+
+# Association between PM/Constituents in 5yrs Pre-Diagnosis and DLCO Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of PM During Disease on DLCO decline.
+
+## PM2.5
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*PM_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*PM_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+## SO4
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*SO4_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*SO4_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## NO3
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*NO3_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*NO3_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+
+## NH4
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## BC
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*BC_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*BC_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## OM
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*OM_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*OM_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## SS
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*SS_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*SS_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## Soil
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreDx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreDx + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+# Association between PM/Constituents in 5yrs Pre-Censoring and DLCO Decline
+Linear mixed models with random intercept and slope will be used to evaluate the impact of PM During Disease on DLCO decline.
+
+## PM2.5
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*PM_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*PM_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+## SO4
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*SO4_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*SO4_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## NO3
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*NO3_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*NO3_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+
+## NH4
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*NH4_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## BC
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*BC_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*BC_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## OM
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*OM_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*OM_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## SS
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*SS_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*SS_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+
+## Soil
+### Base Model
+```{r}
+DLCO_lmer1 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer1)
+icc(DLCO_lmer1)
+report(DLCO_lmer1)
+```
+
+
+### Complete Model
+```{r}
+DLCO_lmer2 <- lmer(dlco_pct ~ 1 + time_firstPFT*Soil_5yrPreCensor + time_firstPFT*disadv + time_firstPFT*dich_Race + time_firstPFT*sex + time_firstPFT*age_dx + time_firstPFT*smokeHx + time_firstPFT*site + cluster(cohort) + (1 + time_firstPFT| ID), data=pft)
+summary(DLCO_lmer2)
+icc(DLCO_lmer2)
+report(DLCO_lmer2)
+```
+
+

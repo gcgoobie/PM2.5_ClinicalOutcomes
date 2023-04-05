@@ -1,0 +1,628 @@
+---
+title: "Post-Publication Baseline Lung Fxn Combined Cohorts One-Stage Meta-Analysis"
+author: "Gillian Goobie"
+date: "2023_04_03"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+  bookdown::html_document2:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=F}
+library(tidyverse)
+library(readxl)
+library(here)
+library(writexl)
+library(knitr)
+library(lintr)
+library(tidync)
+library(maps)
+library(ncmeta)
+library(devtools)
+library(RNetCDF)
+library(ncdf4)
+library(survival)
+library(survminer)
+library(lubridate)
+library(cmprsk)
+library(riskRegression)
+library(prodlim)
+library(RColorBrewer)
+library(prodlim)
+library(lme4)
+library(performance)
+library(psycho)
+library(report)
+library(rms)
+library(splines)
+library(Greg)
+library(rstpm2)
+library(pspline)
+library(smoothHR)
+library(raster)
+library(forestplot)
+library(qgcomp)
+```
+
+# Combining Individual Site Data
+## Simmons
+Upload Simmons PM2.5 matching data
+```{r}
+outfile2 <- here("Simmons_fILD_AllConstituentsMatched_2022_07_28.xlsx")
+PM_Simm <- read_excel(outfile2, na="")
+# Create cohort column
+PM_Simm <- PM_Simm %>% mutate(cohort="Simmons")
+PM_Simm <- PM_Simm %>% mutate(site="Simmons")
+PM_Simm <- PM_Simm %>% dplyr::select(ID, cohort, site, dx_IPF, dx_yr, sex, race, dich_Race, smokeHx, age_dx, ADI_nat, status, deadORtx, dx, dx_group, txed, tx_date, DeathTxCensor_date, pft_date, fvc_pct, dlco_pct, time_DeathTxCensor, PM_5yrPreDx, PM_5yrPreCensor, SO4_5yrPreDx, SO4_5yrPreCensor, NO3_5yrPreDx, NO3_5yrPreCensor, NH4_5yrPreDx, NH4_5yrPreCensor, BC_5yrPreDx, BC_5yrPreCensor, OM_5yrPreDx, OM_5yrPreCensor, SS_5yrPreDx, SS_5yrPreCensor, Soil_5yrPreDx, Soil_5yrPreCensor)
+```
+
+### Simmons - Disadvantage Distribution
+Creating this empirical cumulative distribution will allow us to combine the analyses of all three cohorts even though the measurements for disadvantage are different between the three.
+```{r}
+plot(ecdf(PM_Simm$ADI_nat))
+PM_Simm$disadv <- ecdf(PM_Simm$ADI_nat)(PM_Simm$ADI_nat)
+PM_Simm <- PM_Simm %>% dplyr::select(ID, cohort, site, dx_IPF, dx_yr, sex, race, dich_Race, smokeHx, age_dx, disadv, status, deadORtx, dx, dx_group, txed, tx_date, DeathTxCensor_date, pft_date, fvc_pct, dlco_pct, time_DeathTxCensor, PM_5yrPreDx, PM_5yrPreCensor, SO4_5yrPreDx, SO4_5yrPreCensor, NO3_5yrPreDx, NO3_5yrPreCensor, NH4_5yrPreDx, NH4_5yrPreCensor, BC_5yrPreDx, BC_5yrPreCensor, OM_5yrPreDx, OM_5yrPreCensor, SS_5yrPreDx, SS_5yrPreCensor, Soil_5yrPreDx, Soil_5yrPreCensor)
+```
+
+## PFF
+PFF data
+```{r}
+outfile3 <- here("PFF_fILD_AllConstituentsMatched_2022_07_28.xlsx")
+PM_PFF <- read_excel(outfile3, na="")
+# Create cohort column
+PM_PFF <- PM_PFF %>% mutate(cohort="PFF")
+```
+
+```{r}
+PM_PFF$ID <- paste("11111", PM_PFF$ID, sep="")
+PM_PFF$txed <- if_else(PM_PFF$status==2, 1, 0)
+PM_PFF$pft_date <- PM_PFF$fvc_date
+PM_PFF <- PM_PFF %>% dplyr::select(ID, cohort, site, dx_IPF, dx_yr, sex, race, dich_Race, smokeHx, age_dx, pct_belowpoverty, status, deadORtx, dx, dx_group, txed, tx_date, DeathTxCensor_date, pft_date, fvc_pct, dlco_pct, time_DeathTxCensor, PM_5yrPreDx, PM_5yrPreCensor, SO4_5yrPreDx, SO4_5yrPreCensor, NO3_5yrPreDx, NO3_5yrPreCensor, NH4_5yrPreDx, NH4_5yrPreCensor, BC_5yrPreDx, BC_5yrPreCensor, OM_5yrPreDx, OM_5yrPreCensor, SS_5yrPreDx, SS_5yrPreCensor, Soil_5yrPreDx, Soil_5yrPreCensor)
+```
+
+Correct sex
+```{r}
+PM_PFF$sex <- if_else(PM_PFF$sex=="Female", "F", "M")
+PM_PFF$smokeHx <- if_else(PM_PFF$smokeHx=="Ever", "Former", "Never")
+```
+
+
+### PFF - Disadvantage Distribution
+Creating this empirical cumulative distribution will allow us to combine the analyses of all three cohorts even though the measurements for disadvantage are different between the three.
+```{r}
+plot(ecdf(PM_PFF$pct_belowpoverty))
+PM_PFF$disadv <- ecdf(PM_PFF$pct_belowpoverty)(PM_PFF$pct_belowpoverty)
+PM_PFF <- PM_PFF %>% dplyr::select(ID, cohort, site, dx_IPF, dx_yr, sex, race, dich_Race, smokeHx, age_dx, disadv, status, deadORtx, dx, dx_group, txed, tx_date, DeathTxCensor_date, pft_date, fvc_pct, dlco_pct, time_DeathTxCensor, PM_5yrPreDx, PM_5yrPreCensor, SO4_5yrPreDx, SO4_5yrPreCensor, NO3_5yrPreDx, NO3_5yrPreCensor, NH4_5yrPreDx, NH4_5yrPreCensor, BC_5yrPreDx, BC_5yrPreCensor, OM_5yrPreDx, OM_5yrPreCensor, SS_5yrPreDx, SS_5yrPreCensor, Soil_5yrPreDx, Soil_5yrPreCensor)
+```
+
+## CARE-PF
+CARE-PF data
+```{r}
+outfile4 <- here("CAREPF_fILD_AllConstituentsMatched_2022_07_28.xlsx")
+PM_CARE <- read_excel(outfile4, na="")
+# Create cohort column
+PM_CARE <- PM_CARE %>% mutate(cohort="CARE-PF")
+PM_CARE <- PM_CARE %>% dplyr::select(ID, cohort, site, dx_IPF, dx_yr, sex, race, dich_Race, smokeHx, age_dx, avg_s, status, deadORtx, dx, dx_group, txed, tx_date, DeathTxCensor_date, pft_date, fvc_pct, dlco_pct, time_DeathTxCensor, PM_5yrPreDx, PM_5yrPreCensor, SO4_5yrPreDx, SO4_5yrPreCensor, NO3_5yrPreDx, NO3_5yrPreCensor, NH4_5yrPreDx, NH4_5yrPreCensor, BC_5yrPreDx, BC_5yrPreCensor, OM_5yrPreDx, OM_5yrPreCensor, SS_5yrPreDx, SS_5yrPreCensor, Soil_5yrPreDx, Soil_5yrPreCensor)
+```
+
+### CARE-PF - Disadvantage Distribution
+Creating this empirical cumulative distribution will allow us to combine the analyses of all three cohorts even though the measurements for disadvantage are different between the three.
+```{r}
+plot(ecdf(PM_CARE$avg_s))
+PM_CARE$disadv <- ecdf(PM_CARE$avg_s)(PM_CARE$avg_s)
+PM_CARE <- PM_CARE %>% dplyr::select(ID, cohort, site, dx_IPF, dx_yr, sex, race, dich_Race, smokeHx, age_dx, disadv, status, deadORtx, dx, dx_group, txed, tx_date, DeathTxCensor_date, pft_date, fvc_pct, dlco_pct, time_DeathTxCensor, PM_5yrPreDx, PM_5yrPreCensor, SO4_5yrPreDx, SO4_5yrPreCensor, NO3_5yrPreDx, NO3_5yrPreCensor, NH4_5yrPreDx, NH4_5yrPreCensor, BC_5yrPreDx, BC_5yrPreCensor, OM_5yrPreDx, OM_5yrPreCensor, SS_5yrPreDx, SS_5yrPreCensor, Soil_5yrPreDx, Soil_5yrPreCensor)
+```
+
+## Combine the files
+```{r}
+PM <- rbind(PM_Simm, PM_PFF, PM_CARE)
+```
+
+# Correcting Factor Variables
+```{r}
+PM$site <- fct_relevel(PM$site, c("Simmons"))
+PM$cohort <- fct_relevel(PM$cohort, c("Simmons", "PFF", "CARE-PF"))
+
+PM$sex <- fct_relevel(PM$sex, c("Male","Female"))
+PM$race <- fct_relevel(PM$race, c("W","B","A","I","U"))
+PM$dich_Race <- fct_relevel(PM$dich_Race, c("White","Non-White"))
+PM$smokeHx <- fct_relevel(PM$smokeHx, c("Never","Ever"))
+
+#For dx and dx_group, I just want IPF to be first and then the rest of the categories are alphabetical
+PM$dx <- fct_relevel(PM$dx, c("IPF"))
+PM$dx_group <- fct_relevel(PM$dx_group, c("IPF"))
+PM$dx_IPF <- fct_relevel(PM$dx_IPF, c("IPF"))
+str(PM)
+```
+
+# Write Excel File
+```{r}
+write_xlsx(PM, "CombinedCohorts_5yrPreCensoringANDPreDxData_2023_04_03.xlsx")
+```
+
+
+
+# Median/IQR of Pollutants by Cohort/Site
+```{r}
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(PM_5yrPreCensor, na.rm = TRUE),
+    sd = sd(PM_5yrPreCensor, na.rm = TRUE),
+    median = median(PM_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(PM_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(PM_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(SO4_5yrPreCensor, na.rm = TRUE),
+    sd = sd(SO4_5yrPreCensor, na.rm = TRUE),
+    median = median(SO4_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(SO4_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(SO4_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(NO3_5yrPreCensor, na.rm = TRUE),
+    sd = sd(NO3_5yrPreCensor, na.rm = TRUE),
+    median = median(NO3_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(NO3_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(NO3_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(NH4_5yrPreCensor, na.rm = TRUE),
+    sd = sd(NH4_5yrPreCensor, na.rm = TRUE),
+    median = median(NH4_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(NH4_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(NH4_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(BC_5yrPreCensor, na.rm = TRUE),
+    sd = sd(BC_5yrPreCensor, na.rm = TRUE),
+    median = median(BC_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(BC_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(BC_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(OM_5yrPreCensor, na.rm = TRUE),
+    sd = sd(OM_5yrPreCensor, na.rm = TRUE),
+    median = median(OM_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(OM_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(OM_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(SS_5yrPreCensor, na.rm = TRUE),
+    sd = sd(SS_5yrPreCensor, na.rm = TRUE),
+    median = median(SS_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(SS_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(SS_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+
+group_by(PM, site) %>%
+  summarise(
+    count = n(),
+    mean = mean(Soil_5yrPreCensor, na.rm = TRUE),
+    sd = sd(Soil_5yrPreCensor, na.rm = TRUE),
+    median = median(Soil_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(Soil_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(Soil_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+```
+
+# Status and Time_DeathTxCensoring across full cohort
+```{r}
+table(PM$status)
+summary(PM$time_DeathTxCensor)
+```
+
+# Correlation between 5yr Pre-Censor and 5yr Pre-Dx
+```{r}
+colnames(PM)
+GGally::ggpairs(PM, columns=c(18:19), aes(color=PM$cohort))
+```
+
+
+
+# Summary Data for Combined Cohorts
+## Summary of pollutants
+```{r}
+summary(PM$PM_5yrPreDx)
+summary(PM$PM_5yrPreCensor)
+summary(PM$SO4_5yrPreDx)
+summary(PM$SO4_5yrPreCensor)
+summary(PM$NO3_5yrPreDx)
+summary(PM$NO3_5yrPreCensor)
+summary(PM$NH4_5yrPreDx)
+summary(PM$NH4_5yrPreCensor)
+summary(PM$BC_5yrPreDx)
+summary(PM$BC_5yrPreCensor)
+summary(PM$OM_5yrPreDx)
+summary(PM$OM_5yrPreCensor)
+summary(PM$SS_5yrPreDx)
+summary(PM$SS_5yrPreCensor)
+summary(PM$Soil_5yrPreDx)
+summary(PM$Soil_5yrPreCensor)
+```
+
+## Diagnosis year
+```{r}
+summary(PM$dx_yr)
+```
+
+## Age_dx
+```{r}
+summary(PM$age_dx)
+```
+
+
+## Constituent breakdown by cohort
+```{r}
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(PM_5yrPreCensor, na.rm = TRUE),
+    sd = sd(PM_5yrPreCensor, na.rm = TRUE),
+    median = median(PM_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(PM_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(PM_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(SO4_5yrPreCensor, na.rm = TRUE),
+    sd = sd(SO4_5yrPreCensor, na.rm = TRUE),
+    median = median(SO4_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(SO4_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(SO4_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(NO3_5yrPreCensor, na.rm = TRUE),
+    sd = sd(NO3_5yrPreCensor, na.rm = TRUE),
+    median = median(NO3_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(NO3_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(NO3_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(NH4_5yrPreCensor, na.rm = TRUE),
+    sd = sd(NH4_5yrPreCensor, na.rm = TRUE),
+    median = median(NH4_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(NH4_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(NH4_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(BC_5yrPreCensor, na.rm = TRUE),
+    sd = sd(BC_5yrPreCensor, na.rm = TRUE),
+    median = median(BC_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(BC_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(BC_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(OM_5yrPreCensor, na.rm = TRUE),
+    sd = sd(OM_5yrPreCensor, na.rm = TRUE),
+    median = median(OM_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(OM_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(OM_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(SS_5yrPreCensor, na.rm = TRUE),
+    sd = sd(SS_5yrPreCensor, na.rm = TRUE),
+    median = median(SS_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(SS_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(SS_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+group_by(PM, cohort) %>%
+  summarise(
+    count = n(),
+    mean = mean(Soil_5yrPreCensor, na.rm = TRUE),
+    sd = sd(Soil_5yrPreCensor, na.rm = TRUE),
+    median = median(Soil_5yrPreCensor, na.rm = TRUE),
+    quantile = quantile(Soil_5yrPreCensor, probs=c(0.25), na.rm = TRUE),
+    quantile2 = quantile(Soil_5yrPreCensor, probs=c(0.75), na.rm = TRUE)
+  )
+```
+
+
+# Baseline FVC Models - Combined One-Stage Meta-Analysis with 5yr Pre-Enrollment Exposure Estimates
+## PM2.5 Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ PM_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ PM_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## SO4 Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ SO4_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ SO4_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## NO3 Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ NO3_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ NO3_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## NH4 Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ NH4_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ NH4_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## BC Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ BC_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ BC_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## OM Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ OM_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ OM_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## SS Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ SS_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ SS_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## Soil Models
+```{r}
+fvc_model1 <- lm(fvc_pct ~ Soil_5yrPreDx + site + cluster(cohort), data=PM)
+summary(fvc_model1)
+confint(fvc_model1)
+```
+
+```{r}
+fvc_model2 <- lm(fvc_pct ~ Soil_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(fvc_model2)
+confint(fvc_model2)
+```
+
+## Multiconstituent Models
+Multi-pollutant model without other covariates except site and cohoty
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(fvc_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + site + cluster(cohort), data=PM)
+
+#Next construct the base linear model
+qc.fit1 <- qgcomp.noboot(fvc_pct~.,data=PM[,c(Xnm, 'site', 'cohort', 'fvc_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+#view the results
+qc.fit1
+```
+
+Complete multi-pollutant model
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(fvc_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+
+
+qc.fit2 <- qgcomp.noboot(fvc_pct~.,data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'disadv', 'site', 'cohort', 'fvc_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+qc.fit2
+```
+
+# Baseline DLCO Models - Combined One-Stage Meta-Analysis with 5yr Pre-Enrollment Exposure Estimates
+## PM2.5 Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ PM_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ PM_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## SO4 Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ SO4_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ SO4_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## NO3 Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ NO3_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ NO3_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## NH4 Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ NH4_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ NH4_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## BC Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ BC_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ BC_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## OM Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ OM_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ OM_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## SS Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ SS_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ SS_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## Soil Models
+```{r}
+dlco_model1 <- lm(dlco_pct ~ Soil_5yrPreDx + site + cluster(cohort), data=PM)
+summary(dlco_model1)
+confint(dlco_model1)
+```
+
+```{r}
+dlco_model2 <- lm(dlco_pct ~ Soil_5yrPreDx + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+summary(dlco_model2)
+confint(dlco_model2)
+```
+
+## Multiconstituent Models
+Multi-pollutant model without other covariates except site and cohoty
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(dlco_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + site + cluster(cohort), data=PM)
+
+#Next construct the base linear model
+qc.fit1 <- qgcomp.noboot(dlco_pct~.,data=PM[,c(Xnm, 'site', 'cohort', 'dlco_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+#view the results
+qc.fit1
+```
+
+Complete multi-pollutant model
+```{r}
+#First need to list the pollutants in the model
+Xnm <- c('SO4_5yrPreCensor','NO3_5yrPreCensor','NH4_5yrPreCensor','BC_5yrPreCensor','OM_5yrPreCensor','SS_5yrPreCensor','Soil_5yrPreCensor')
+
+lm(dlco_pct ~ SO4_5yrPreCensor + NH4_5yrPreCensor + NO3_5yrPreCensor + BC_5yrPreCensor + OM_5yrPreCensor + SS_5yrPreCensor + Soil_5yrPreCensor + age_dx + sex + smokeHx + dich_Race + disadv + site + cluster(cohort), data=PM)
+
+
+qc.fit2 <- qgcomp.noboot(dlco_pct~.,data=PM[,c(Xnm, 'age_dx', 'sex', 'smokeHx', 'dich_Race', 'disadv', 'site', 'cohort', 'dlco_pct')], expnms=Xnm, family=gaussian(), q=4)
+
+qc.fit2
+```
+
+
